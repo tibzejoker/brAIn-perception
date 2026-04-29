@@ -1,0 +1,28 @@
+# Build artifacts
+dist/
+*.tsbuildinfo
+
+# Deps
+node_modules/
+.pnpm-store/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Runtime / data
+data/
+nodes/*/server/data/
+nodes/*/server/models/
+nodes/*/tests/output/
+nodes/*/tests/fixtures/
+
+# Logs
+*.log
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/

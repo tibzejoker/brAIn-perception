@@ -1,0 +1,17 @@
+{
+  "name": "brAIn-perception",
+  "private": true,
+  "license": "MIT",
+  "description": "brAIn perception nodes — voice, gaze, intent. Plug into the brAIn framework via the @brain/node-* npm packages or as workspace members of a sibling brAIn checkout.",
+  "scripts": {
+    "build": "pnpm -r build",
+    "clean": "pnpm -r exec rm -rf dist",
+    "setup:voice": "node scripts/setup-py.mjs voice",
+    "setup:gaze": "node scripts/setup-py.mjs gaze",
+    "dev:voice:server": "cd nodes/voice/server && VOICE_ENGINE=real .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload",
+    "dev:gaze:server": "cd nodes/gaze/server && .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8766 --reload"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}

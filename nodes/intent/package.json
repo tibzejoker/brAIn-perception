@@ -1,0 +1,33 @@
+{
+  "name": "@brain/node-intent",
+  "version": "0.1.0",
+  "description": "brAIn node — pure-TS correlator over voice.transcript + gaze.target.resolved bus events. Maintains persons (voice↔gaze↔name) in local SQLite, publishes intent.detected.",
+  "license": "MIT",
+  "main": "dist/handler.js",
+  "types": "dist/handler.d.ts",
+  "files": [
+    "dist",
+    "config.json",
+    "ui",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "@brain/core": "workspace:*",
+    "@brain/sdk": "workspace:*",
+    "better-sqlite3": "^12.8.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^20.11.0",
+    "@types/ws": "^8.5.13",
+    "typescript": "^5.4.0"
+  }
+}

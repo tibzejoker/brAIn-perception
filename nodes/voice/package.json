@@ -1,0 +1,34 @@
+{
+  "name": "@brain/node-voice",
+  "version": "0.1.0",
+  "description": "brAIn node — local STT (faster-whisper) + speaker diarization (WeSpeaker), spawns its own Python server as a child process.",
+  "license": "MIT",
+  "main": "dist/handler.js",
+  "types": "dist/handler.d.ts",
+  "files": [
+    "dist",
+    "config.json",
+    "ui",
+    "server/app",
+    "server/requirements.txt",
+    "server/pyproject.toml",
+    "server/README.md",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "@brain/core": "workspace:*",
+    "@brain/sdk": "workspace:*",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.13",
+    "typescript": "^5.4.0"
+  }
+}
