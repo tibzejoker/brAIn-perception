@@ -1,4 +1,6 @@
 import * as path from "node:path";
+import { existsSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { startChildServer, type ChildServerHandle, BrainService, logger } from "@brain/core";
 import type { NodeHandler, NodeInfo, NodeOnSpawn, NodeTeardown } from "@brain/sdk";
 import WebSocket from "ws";
@@ -18,8 +20,31 @@ let nodeId: string | null = null;
 let bridgeWs: WebSocket | null = null;
 let bridgeStop = false;
 
+/**
+ * First-spawn auto-install: if the Python venv doesn't exist yet, run
+ * `setup-py.mjs voice` synchronously before trying to start the
+ * server. The setup downloads ~200 MB of STT models so this can take
+ * a few minutes — the output is piped to stdout so the user sees
+ * pip + model download progress in the brAIn API console.
+ */
+function ensureSetup(): void {
+  if (existsSync(VENV_PYTHON)) return;
+  // perception-root = nodes/voice/dist/.. → nodes/voice/.. → nodes/.. → root
+  const setupScript = path.resolve(__dirname, "..", "..", "..", "scripts", "setup-py.mjs");
+  if (!existsSync(setupScript)) {
+    throw new Error(`voice: venv missing and setup-py.mjs not found at ${setupScript}`);
+  }
+  logger.warn({ script: setupScript }, "voice: venv missing — running first-time setup (a few minutes)");
+  const result = spawnSync(process.execPath, [setupScript, "voice"], { stdio: "inherit" });
+  if (result.status !== 0) {
+    throw new Error(`voice: setup-py.mjs voice failed (exit ${result.status ?? "?"})`);
+  }
+  logger.info("voice: venv ready");
+}
+
 function ensureServer(): Promise<ChildServerHandle> {
   if (serverPromise) return serverPromise;
+  ensureSetup();
   const p = startChildServer({
     name: "voice-server",
     healthUrl: `${SERVER_URL}/api/health`,

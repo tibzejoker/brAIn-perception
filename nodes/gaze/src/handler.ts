@@ -1,4 +1,6 @@
 import * as path from "node:path";
+import { existsSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { startChildServer, type ChildServerHandle, BrainService, logger } from "@brain/core";
 import type { NodeHandler, NodeInfo, NodeOnSpawn, NodeTeardown } from "@brain/sdk";
 
@@ -18,8 +20,30 @@ let pollerTimer: NodeJS.Timeout | null = null;
 let pollerCursor = 0;
 let pollerStop = false;
 
+/**
+ * First-spawn auto-install: if the Python venv doesn't exist yet,
+ * run `setup-py.mjs gaze` synchronously before starting the server.
+ * This pulls Gazelle / InsightFace / MediaPipe / Moondream — ~500 MB
+ * of model weights — so first spawn takes 5-10 minutes. Output is
+ * piped to stdout so the user sees the progress in the API console.
+ */
+function ensureSetup(): void {
+  if (existsSync(VENV_PYTHON)) return;
+  const setupScript = path.resolve(__dirname, "..", "..", "..", "scripts", "setup-py.mjs");
+  if (!existsSync(setupScript)) {
+    throw new Error(`gaze: venv missing and setup-py.mjs not found at ${setupScript}`);
+  }
+  logger.warn({ script: setupScript }, "gaze: venv missing — running first-time setup (5-10 minutes)");
+  const result = spawnSync(process.execPath, [setupScript, "gaze"], { stdio: "inherit" });
+  if (result.status !== 0) {
+    throw new Error(`gaze: setup-py.mjs gaze failed (exit ${result.status ?? "?"})`);
+  }
+  logger.info("gaze: venv ready");
+}
+
 function ensureServer(): Promise<ChildServerHandle> {
   if (serverPromise) return serverPromise;
+  ensureSetup();
   const p = startChildServer({
     name: "gaze-server",
     healthUrl: `${SERVER_URL}/api/health`,
