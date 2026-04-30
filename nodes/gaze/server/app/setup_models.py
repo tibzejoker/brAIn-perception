@@ -67,10 +67,27 @@ def _prepare_face_landmarker() -> None:
 
 def main() -> None:
     settings.models_dir.mkdir(parents=True, exist_ok=True)
-    _prepare_recognizer()
-    _prepare_moondream()
-    _prepare_face_landmarker()
-    log.info("all models ready in %s", settings.models_dir)
+    # Order matters: do the small / fast downloads first so partial
+    # setups (e.g. interrupted moondream pull) still leave the cheap
+    # bits ready. Each step is independent — a failure in one doesn't
+    # skip the others, just logs and moves on.
+    steps = [
+        ("face_landmarker", _prepare_face_landmarker),  # 3.6 MB, mediapipe
+        ("insightface", _prepare_recognizer),           # ~300 MB, buffalo_l
+        ("moondream", _prepare_moondream),              # ~3.8 GB, HF snapshot
+    ]
+    failures: list[str] = []
+    for name, fn in steps:
+        try:
+            fn()
+        except Exception as e:
+            log.error("%s step failed: %s — continuing", name, e)
+            failures.append(name)
+    if failures:
+        log.warning("setup_models finished with %d failure(s): %s",
+                    len(failures), ", ".join(failures))
+    else:
+        log.info("all models ready in %s", settings.models_dir)
 
 
 if __name__ == "__main__":
