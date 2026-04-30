@@ -50,7 +50,10 @@ function ensureServer(): Promise<ChildServerHandle> {
     command: PYTHON_BIN,
     args: ["-m", "uvicorn", "app.main:app", "--host", HOST, "--port", PORT],
     cwd: SERVER_DIR,
-    startupTimeoutMs: 120_000,
+    // Cold load of InsightFace + Gazelle/DINOv2 + MediaPipe + Moondream
+    // can take 3-5 minutes the first time on Apple Silicon. Bump
+    // generously; override via GAZE_STARTUP_TIMEOUT_MS.
+    startupTimeoutMs: Number(process.env.GAZE_STARTUP_TIMEOUT_MS ?? "300000"),
   });
   serverPromise = p;
   p.catch((err: unknown) => {

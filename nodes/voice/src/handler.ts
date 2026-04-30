@@ -54,7 +54,10 @@ function ensureServer(): Promise<ChildServerHandle> {
     env: {
       VOICE_ENGINE: process.env.VOICE_ENGINE ?? "real",
     },
-    startupTimeoutMs: 60_000,
+    // Cold load of faster-whisper "medium" + WeSpeaker eres2net runs
+    // ~90 s on M1; bump generously so the health-check doesn't kill
+    // it. Override via VOICE_STARTUP_TIMEOUT_MS for slower CPUs.
+    startupTimeoutMs: Number(process.env.VOICE_STARTUP_TIMEOUT_MS ?? "180000"),
   });
   serverPromise = p;
   p.catch((err: unknown) => {
