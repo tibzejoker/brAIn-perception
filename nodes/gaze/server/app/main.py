@@ -23,21 +23,16 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 log = logging.getLogger("gaze")
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
+def _build_models() -> tuple:
+    """Heavy ML model load. Called lazily on first capture.start so the
+    server boot itself stays under ~50 MB. Returns
+    (recognizer, gazelle, moondream, iris) — any of the optional ones
+    may be None if disabled or failed to load.
+    """
     disable_describe = os.environ.get("GAZE_DISABLE_DESCRIBE", "0") == "1"
     disable_gazelle = os.environ.get("GAZE_DISABLE_GAZELLE", "0") == "1"
     disable_iris = os.environ.get("GAZE_DISABLE_IRIS", "0") == "1"
-    log.info(
-        "starting gaze-server (recognizer=%s gazelle=%s moondream=%s db=%s)",
-        settings.recognizer,
-        "off" if disable_gazelle else settings.gazelle_variant,
-        "off" if disable_describe else f"{settings.moondream_repo}@{settings.moondream_revision}",
-        settings.db_path,
-    )
-    heartbeat = maybe_start_from_env()
 
-    store = ProfileStore(settings.db_path)
     recognizer = Recognizer(
         model_name=settings.recognizer,
         det_size=settings.det_size,
@@ -73,7 +68,19 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             log.exception("failed to load iris tracker (%s) — iris signal disabled", e)
 
-    engine = GazeEngine(store, recognizer, gazelle_model, moondream_model, iris_tracker)
+    return recognizer, gazelle_model, moondream_model, iris_tracker
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    log.info("starting gaze-server (db=%s, lazy ML model load)", settings.db_path)
+    heartbeat = maybe_start_from_env()
+
+    store = ProfileStore(settings.db_path)
+    # Engine is built without models; load_models() / unload_models()
+    # are called from /capture/start and /capture/stop so the heavy
+    # weights live in RAM/MPS only while a capture session is active.
+    engine = GazeEngine(store, _build_models)
     capture = LocalCapture(engine)
 
     app.state.store = store
@@ -85,6 +92,7 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         capture.stop()
+        engine.unload_models()
         store.close()
         if heartbeat is not None:
             heartbeat.stop()

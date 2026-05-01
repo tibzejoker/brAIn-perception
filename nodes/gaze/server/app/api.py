@@ -33,8 +33,13 @@ def build_router(
 
     @router.get("/health")
     def health() -> dict[str, object]:
+        # Models are lazy-loaded on /capture/start, so before the first
+        # capture session the gazelle/moondream/iris flags read False.
+        # That's expected — the dashboard should call capture/start
+        # before relying on those.
         return {
             "status": "ok",
+            "models_loaded": engine.models_loaded(),
             "gazelle": engine._gazelle is not None,  # noqa: SLF001
             "moondream": engine._moondream is not None,  # noqa: SLF001
             "iris": engine._iris is not None,  # noqa: SLF001
@@ -143,6 +148,11 @@ def build_router(
 
     @router.post("/capture/start")
     def capture_start(body: CaptureStartIn) -> dict:
+        # Bring the recognizer / gazelle / moondream / iris into RAM
+        # before opening the camera so the first frame doesn't race
+        # the cold model load. Idempotent — already-loaded models
+        # short-circuit.
+        engine.ensure_models_loaded()
         try:
             return capture.start(
                 device=body.device, fps=body.fps, describe=body.describe,
@@ -152,7 +162,11 @@ def build_router(
 
     @router.post("/capture/stop")
     def capture_stop() -> dict:
-        return capture.stop()
+        result = capture.stop()
+        # Free the ML weights so an idle gaze-server doesn't hold
+        # ~5 GB on Metal/CUDA. Next /capture/start will reload them.
+        engine.unload_models()
+        return result
 
     @router.post("/capture/describe")
     def capture_describe(body: CaptureDescribeIn) -> dict:

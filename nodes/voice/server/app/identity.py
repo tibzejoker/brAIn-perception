@@ -34,7 +34,7 @@ class IdentityResolver:
         self._embedder = embedder
         self._label_to_profile: dict[str, str] = {}
 
-    def set_embedder(self, embedder: "Embedder") -> None:
+    def set_embedder(self, embedder: "Embedder | None") -> None:
         self._embedder = embedder
 
     def reset_label_map(self) -> None:

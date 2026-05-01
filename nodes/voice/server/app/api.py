@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
+from .config import settings
 from .local_capture import CaptureError, LocalCapture, list_input_devices
 from .models import CaptureStartIn, ControlIn, MergeIn, ProfileIn, ProfilePatch
 from .profiles import ProfileStore
@@ -92,10 +93,23 @@ def build_router(store: ProfileStore, hub: SessionHub, capture: LocalCapture) ->
 
     @router.get("/tuning")
     def get_tuning() -> dict[str, float]:
+        if hub.engine is None:
+            # No active capture session → no engine instantiated yet.
+            # Surface defaults from settings so the dashboard can still
+            # render a tuning panel before the user clicks Start.
+            return {
+                "vad_speech_threshold": 0.5,
+                "match_threshold": settings.match_threshold,
+                "uncertain_threshold": settings.uncertain_threshold,
+                "ema_decay": settings.ema_decay,
+                "min_segment_ms": float(settings.min_segment_ms),
+            }
         return hub.engine.get_tuning()
 
     @router.patch("/tuning")
     def patch_tuning(body: dict[str, float]) -> dict[str, float]:
+        if hub.engine is None:
+            raise HTTPException(409, "voice engine not loaded — start a capture session first")
         return hub.engine.set_tuning(**body)
 
     @router.get("/capture/devices")

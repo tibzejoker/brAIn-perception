@@ -11,11 +11,13 @@ Identity persistence + event history live in ProfileStore (SQLite).
 """
 from __future__ import annotations
 
+import gc
 import logging
 import math
 import time
 from dataclasses import dataclass
 from io import BytesIO
+from typing import Callable
 
 import numpy as np
 from PIL import Image
@@ -54,16 +56,18 @@ class GazeEngine:
     def __init__(
         self,
         store: ProfileStore,
-        recognizer: Recognizer,
-        gazelle: GazelleModel | None,
-        moondream: GazeModel | None,
-        iris: IrisTracker | None,
+        model_factory: "Callable[[], tuple[Recognizer, GazelleModel | None, GazeModel | None, IrisTracker | None]]",
     ) -> None:
         self._store = store
-        self._rec = recognizer
-        self._gazelle = gazelle
-        self._moondream = moondream
-        self._iris = iris
+        # Models stay None until ensure_models_loaded() runs, called
+        # from /capture/start. Released by unload_models() — typically
+        # from /capture/stop — so an idle gaze-server keeps its multi-
+        # GB ML weights off the GPU.
+        self._model_factory = model_factory
+        self._rec: Recognizer | None = None
+        self._gazelle: GazelleModel | None = None
+        self._moondream: GazeModel | None = None
+        self._iris: IrisTracker | None = None
         self._tuning = _Tuning(
             match_threshold=settings.match_threshold,
             uncertain_threshold=settings.uncertain_threshold,
@@ -88,6 +92,35 @@ class GazeEngine:
         # the subject holds the same state for a long time.
         self._last_event_ts: dict[str, float] = {}
         self._pending: dict[str, tuple[tuple[str, str | None], int]] = {}
+
+    def models_loaded(self) -> bool:
+        return self._rec is not None
+
+    def ensure_models_loaded(self) -> None:
+        if self._rec is not None:
+            return
+        log.info("ensure_models_loaded — loading recognizer / gazelle / moondream / iris")
+        self._rec, self._gazelle, self._moondream, self._iris = self._model_factory()
+
+    def unload_models(self) -> None:
+        if self._rec is None:
+            return
+        log.info("unload_models — releasing recognizer / gazelle / moondream / iris")
+        self._rec = None
+        self._gazelle = None
+        self._moondream = None
+        self._iris = None
+        gc.collect()
+        try:
+            import torch
+            if torch.backends.mps.is_available():
+                torch.mps.empty_cache()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            # torch isn't required; ignore if it isn't around or the
+            # accelerator backend isn't initialised.
+            pass
 
     def get_tuning(self) -> dict[str, float]:
         return {
@@ -124,12 +157,17 @@ class GazeEngine:
         # actually in that state — not the moment after Moondream /
         # other slow per-frame inference finished.
         frame_ts = _now_iso()
+        # Lazy-load: if /capture/start wasn't called yet (someone hit
+        # /api/identify directly), bring the models up here.
+        self.ensure_models_loaded()
+        rec = self._rec
+        assert rec is not None  # ensure_models_loaded guarantees this
         pil = Image.open(BytesIO(image_bytes)).convert("RGB")
         width, height = pil.size
 
         t0 = time.perf_counter()
         image_bgr = _pil_to_bgr(pil)
-        raw_faces = self._rec.detect(image_bgr)
+        raw_faces = rec.detect(image_bgr)
         min_side = min(width, height) * self._tuning.min_face_fraction
         if min_side > 0:
             raw_faces = [

@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 import asyncio
+import gc
 import json
 import logging
 from collections import defaultdict
-from typing import Any
+from typing import Any, Callable
 
 from fastapi import WebSocket, WebSocketDisconnect
 
@@ -17,10 +18,21 @@ log = logging.getLogger(__name__)
 
 
 class SessionHub:
-    """Routes audio frames to the engine and broadcasts events to subscribers."""
+    """Routes audio frames to the engine and broadcasts events to subscribers.
 
-    def __init__(self, engine: Engine, identity: IdentityResolver) -> None:
-        self._engine = engine
+    The engine (and the multi-hundred-MB models it owns) is built lazily
+    on the first start_session call and dropped on stop_session, so a
+    server that boots but never hosts a capture session keeps no ML
+    weights in RAM.
+    """
+
+    def __init__(
+        self,
+        engine_factory: Callable[[], Engine],
+        identity: IdentityResolver,
+    ) -> None:
+        self._engine_factory = engine_factory
+        self._engine: Engine | None = None
         self._identity = identity
         self._subscribers: dict[str, set[WebSocket]] = defaultdict(set)
         self._active_session: str | None = None
@@ -31,7 +43,7 @@ class SessionHub:
         return self._active_session
 
     @property
-    def engine(self) -> Engine:
+    def engine(self) -> Engine | None:
         return self._engine
 
     @property
@@ -41,6 +53,9 @@ class SessionHub:
     async def start_session(self, session_id: str) -> None:
         if self._active_session == session_id:
             return
+        if self._engine is None:
+            log.info("session start — loading engine + models")
+            self._engine = self._engine_factory()
         self._identity.reset_label_map()
         await self._engine.start(session_id)
         self._active_session = session_id
@@ -51,11 +66,19 @@ class SessionHub:
         if self._active_session is None:
             return
         sid = self._active_session
-        await self._engine.stop()
+        if self._engine is not None:
+            await self._engine.stop()
         self._active_session = None
         if self._consumer_task is not None:
             self._consumer_task.cancel()
         await self._broadcast(sid, StatusEvent(state="idle"))
+        # Drop the engine + force gc so the STT / VAD / embedder
+        # models are released. faster-whisper holds Metal/CUDA buffers
+        # via its model object; del + gc.collect releases them.
+        self._engine = None
+        self._identity.set_embedder(None)
+        gc.collect()
+        log.info("session stop — engine + models unloaded")
 
     async def push_audio(self, frame: bytes) -> None:
         await self._engine.push_audio(frame)

@@ -36,15 +36,19 @@ async def lifespan(app: FastAPI):
     import os
 
     engine_choice = os.environ.get("VOICE_ENGINE", "stub").lower()
-    log.info("starting voice-server (engine=%s stt=%s lang=%s)",
+    log.info("starting voice-server (engine=%s stt=%s lang=%s, lazy model load)",
              engine_choice, settings.stt_model, settings.language)
     heartbeat = maybe_start_from_env()
     if engine_choice == "real":
+        # Make sure ONNX weights are on disk so the lazy build doesn't
+        # block the first capture.start on a download. The actual model
+        # load into RAM only happens when start_session() runs.
         _ensure_models()
     store = ProfileStore(settings.db_path)
     identity = IdentityResolver(store)
-    engine = build_engine(identity)
-    hub = SessionHub(engine, identity)
+    # Engine factory is invoked on first start_session; until then the
+    # heavy bits (faster-whisper, WeSpeaker, Silero VAD) stay on disk.
+    hub = SessionHub(lambda: build_engine(identity), identity)
     capture = LocalCapture(hub)
 
     app.state.store = store
