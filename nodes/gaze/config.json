@@ -1,13 +1,27 @@
 {
   "name": "gaze",
   "description": "Local face detection + recognition + gaze direction. Spawns a Python server (InsightFace + Gazelle + MediaPipe) as a child process.",
-  "tags": ["service", "gaze", "vision", "face"],
+  "tags": [
+    "service",
+    "gaze",
+    "vision",
+    "face"
+  ],
   "default_authority": 1,
   "default_priority": 5,
   "default_subscriptions": [
-    { "topic": "gaze.control" },
-    { "topic": "gaze.face.rename" },
-    { "topic": "gaze.face.merge" }
+    {
+      "topic": "gaze.control",
+      "description": "Gaze node control commands (toggle capture, switch model). Forwarded to the Python sidecar."
+    },
+    {
+      "topic": "gaze.face.rename",
+      "description": "Rename a tracked face. Payload: {face_id, new_name}."
+    },
+    {
+      "topic": "gaze.face.merge",
+      "description": "Merge two face IDs into one. Payload: {keep, drop}."
+    }
   ],
   "default_publishes": [
     "gaze.face.detected",
@@ -16,5 +30,7 @@
     "gaze.status"
   ],
   "has_ui": true,
-  "supports_transport": ["process"]
+  "supports_transport": [
+    "process"
+  ]
 }

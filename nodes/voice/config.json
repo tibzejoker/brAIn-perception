@@ -1,13 +1,27 @@
 {
   "name": "voice",
   "description": "Proxy to a standalone real-time STT + diarization server (Python). Bridges audio control commands and forwards transcript/speaker events to the bus.",
-  "tags": ["service", "voice", "transcription", "diarization"],
+  "tags": [
+    "service",
+    "voice",
+    "transcription",
+    "diarization"
+  ],
   "default_authority": 1,
   "default_priority": 5,
   "default_subscriptions": [
-    { "topic": "voice.control" },
-    { "topic": "voice.speaker.rename" },
-    { "topic": "voice.speaker.merge" }
+    {
+      "topic": "voice.control",
+      "description": "Voice node control commands (e.g. enable/disable VAD, switch model). Sender pushes JSON; the Python sidecar honours it."
+    },
+    {
+      "topic": "voice.speaker.rename",
+      "description": "Rename a tracked speaker. Payload: {speaker_id, new_name}."
+    },
+    {
+      "topic": "voice.speaker.merge",
+      "description": "Merge two speaker IDs into one (manual disambiguation). Payload: {keep, drop}."
+    }
   ],
   "default_publishes": [
     "voice.transcript",
@@ -16,5 +30,7 @@
     "voice.status"
   ],
   "has_ui": true,
-  "supports_transport": ["process"]
+  "supports_transport": [
+    "process"
+  ]
 }

@@ -1,20 +1,42 @@
 {
   "name": "intent",
   "description": "Correlator: 'who is talking to whom?' Listens to voice.transcript + gaze.target.resolved on the bus, links speakers to gaze targets via a person store, emits intent.detected.",
-  "tags": ["service", "intent", "correlator", "perception"],
+  "tags": [
+    "service",
+    "intent",
+    "correlator",
+    "perception"
+  ],
   "default_authority": 1,
   "default_priority": 5,
   "default_subscriptions": [
-    { "topic": "voice.transcript" },
-    { "topic": "gaze.target.resolved" },
-    { "topic": "intent.persons.create" },
-    { "topic": "intent.persons.update" },
-    { "topic": "intent.persons.delete" }
+    {
+      "topic": "voice.transcript",
+      "description": "Finalised voice utterances from the voice node — fed into the correlator."
+    },
+    {
+      "topic": "gaze.target.resolved",
+      "description": "Resolved gaze targets from the gaze node — fed into the correlator."
+    },
+    {
+      "topic": "intent.persons.create",
+      "description": "Manually create a person record (voice ↔ gaze ↔ name binding)."
+    },
+    {
+      "topic": "intent.persons.update",
+      "description": "Update an existing person record."
+    },
+    {
+      "topic": "intent.persons.delete",
+      "description": "Delete a person record by id."
+    }
   ],
   "default_publishes": [
     "intent.detected",
     "intent.persons.changed"
   ],
   "has_ui": true,
-  "supports_transport": ["process"]
+  "supports_transport": [
+    "process"
+  ]
 }
