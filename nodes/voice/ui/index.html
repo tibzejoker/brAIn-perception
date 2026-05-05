@@ -297,6 +297,7 @@
           setStatus("listening", `listening — device ${s.device}`);
           els.start.disabled = true; els.stop.disabled = false;
           els.meta.textContent = s.dropped_frames > 0 ? `dropped ${s.dropped_frames}` : "";
+          ensureWs();
         } else {
           setStatus("idle", "idle");
           els.start.disabled = false; els.stop.disabled = true;
