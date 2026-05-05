@@ -182,12 +182,27 @@ class MlxWhisperStt:
         language: str = "en",
         download_root: Path | None = None,  # noqa: ARG002 — mlx_whisper uses HF cache
     ) -> None:
+        import time as _time
         import mlx_whisper  # noqa: WPS433
         self._mlx = mlx_whisper
         self._model = _MLX_REPO_BY_NAME.get(model_size, model_size)
         self._language = language
-        log.info("loading mlx-whisper model=%s lang=%s (repo=%s)",
+        log.info("loading mlx-whisper model=%s lang=%s (repo=%s) — warmup will "
+                 "block boot when the model isn't yet cached (~3GB on first run)",
                  model_size, language, self._model)
+        # Force the HuggingFace download + MLX JIT compile here so the
+        # FIRST real transcribe doesn't eat 1-2 minutes of latency
+        # while audio is already streaming in. We pass 1 s of silence
+        # at 16 kHz (the model's native rate). Result is empty, that's
+        # fine — we're only after the side-effects.
+        warm_t0 = _time.monotonic()
+        self._mlx.transcribe(
+            np.zeros(16000, dtype=np.float32),
+            path_or_hf_repo=self._model,
+            language=self._language,
+            condition_on_previous_text=False,
+        )
+        log.info("mlx-whisper warm in %.1fs", _time.monotonic() - warm_t0)
 
     def transcribe(self, pcm_int16: np.ndarray, sample_rate: int = 16000) -> str:
         if sample_rate != 16000:
