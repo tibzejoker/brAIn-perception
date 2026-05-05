@@ -12,7 +12,12 @@ class Settings(BaseSettings):
 
     stt_model: str = "medium"
     stt_backend: str = "auto"  # auto | mlx | faster-whisper
-    language: str = "fr"
+    # Pool size for STT inference. 1 = strictly sequential (avoids CPU
+    # cores fighting each other on faster-whisper). Bump to 2-4 when
+    # the backend is GPU/ANE (mlx, CUDA) and short segments queue
+    # behind long ones noticeably.
+    stt_parallel: int = 1
+    language: str = "en"
 
     diar_model: str = "streaming-sortformer-4spk-v2.1"
 

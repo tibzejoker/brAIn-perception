@@ -175,8 +175,10 @@ class VadSttEngine(Engine):
     SAMPLE_RATE = 16000
 
     def __init__(self, identity: IdentityResolver) -> None:
+        from concurrent.futures import ThreadPoolExecutor
+
         from .embedder import SherpaSpeakerEmbedder
-        from .stt import FasterWhisperStt
+        from .stt import build_stt
         from .vad import SileroVad
 
         self._identity = identity
@@ -185,10 +187,21 @@ class VadSttEngine(Engine):
 
         models = settings.models_dir
         self._vad = SileroVad(model_path=models / "silero_vad.onnx")
-        self._stt = FasterWhisperStt(
+        self._stt = build_stt(
+            backend=settings.stt_backend,
             model_size=settings.stt_model,
             language=settings.language,
             download_root=models / "whisper",
+        )
+        # Dedicated pool so a long segment doesn't bump short ones to the
+        # back of asyncio's default executor (which is shared with the
+        # rest of the server). Pool size matters mainly with MLX or CUDA
+        # — on CPU multiple parallel transcribes just compete for the
+        # same cores. Default: 1 (no parallelism). Bump via
+        # VOICE_STT_PARALLEL when the backend is GPU/ANE-bound.
+        self._stt_pool = ThreadPoolExecutor(
+            max_workers=settings.stt_parallel,
+            thread_name_prefix="stt",
         )
         embedder_path = models / settings.embedding_model_file
         self._embedder = SherpaSpeakerEmbedder(model_path=embedder_path)
@@ -269,7 +282,7 @@ class VadSttEngine(Engine):
         try:
             stt_t0 = time.monotonic()
             loop = asyncio.get_running_loop()
-            text = await loop.run_in_executor(None, self._stt.transcribe, pcm)
+            text = await loop.run_in_executor(self._stt_pool, self._stt.transcribe, pcm)
             stt_ms = (time.monotonic() - stt_t0) * 1000
             log.info("STT %.2fs–%.2fs done in %dms → %r", t_start, t_end, int(stt_ms), text)
             if not text:
