@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>tts — text-to-speech</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0f172a;
+      --panel: #111827;
+      --panel-2: #1e293b;
+      --border: #334155;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --accent: #f59e0b;
+      --ok: #22c55e;
+      --error: #ef4444;
+      --warn: #f59e0b;
+    }
+    html, body { height: 100%; background: var(--bg); color: var(--text); font: 13px/1.4 ui-sans-serif, system-ui, sans-serif; }
+    body { display: flex; flex-direction: column; }
+
+    header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--panel);
+      flex-shrink: 0;
+    }
+    header h1 { font-size: 14px; color: var(--accent); letter-spacing: 0.02em; }
+    .hint { font-size: 11px; color: var(--muted); }
+    .status {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 4px 10px; border-radius: 12px;
+      background: var(--bg); border: 1px solid var(--border); font-size: 11px;
+    }
+    .status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+    .status.ok .dot { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+    .status.warn .dot { background: var(--warn); }
+    .status.err .dot { background: var(--error); }
+
+    main {
+      flex: 1; padding: 16px; min-height: 0; overflow: auto;
+      display: flex; flex-direction: column; gap: 16px;
+    }
+
+    .card {
+      background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+      padding: 14px;
+    }
+    .card h2 {
+      font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;
+      color: var(--muted); margin-bottom: 10px;
+    }
+
+    .install-hint {
+      background: rgba(245,158,11,0.08); border: 1px dashed var(--warn);
+      border-radius: 4px; padding: 12px; color: var(--text);
+    }
+    .install-hint p { margin-bottom: 8px; font-size: 12px; }
+    .copy-row {
+      display: flex; gap: 6px; align-items: stretch;
+      background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
+      padding: 6px 8px;
+    }
+    .copy-row code {
+      flex: 1; font: 12px ui-monospace, monospace;
+      color: var(--accent); white-space: pre; overflow-x: auto;
+      align-self: center;
+    }
+
+    select, input[type=text], button {
+      background: var(--bg); color: var(--text); border: 1px solid var(--border);
+      padding: 6px 10px; border-radius: 4px; font: inherit; font-size: 12px;
+    }
+    select:hover, button:hover:not(:disabled) { border-color: var(--accent); }
+    button { cursor: pointer; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    button.primary { background: var(--accent); color: #0f172a; border-color: var(--accent); font-weight: 600; }
+    button.primary:hover:not(:disabled) { background: #d97706; }
+    button.ghost { background: transparent; color: var(--muted); }
+    button.ghost:hover { color: var(--text); }
+
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .row label { font-size: 11px; color: var(--muted); margin-right: 4px; }
+    .row select { min-width: 200px; }
+    .row .grow { flex: 1; min-width: 200px; }
+
+    textarea {
+      width: 100%; min-height: 80px;
+      background: var(--bg); color: var(--text); border: 1px solid var(--border);
+      border-radius: 4px; padding: 8px 10px; font: inherit; font-size: 13px;
+      resize: vertical;
+    }
+    textarea:focus { outline: none; border-color: var(--accent); }
+
+    .meta {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 8px; margin-top: 8px;
+    }
+    .meta .kv {
+      background: var(--panel-2); border: 1px solid var(--border); border-radius: 4px;
+      padding: 6px 10px;
+    }
+    .meta .k { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+    .meta .v { font-size: 13px; color: var(--text); font-variant-numeric: tabular-nums; }
+
+    .log {
+      background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
+      padding: 8px; max-height: 180px; overflow-y: auto;
+      font: 11px ui-monospace, monospace;
+    }
+    .log-line { padding: 2px 0; }
+    .log-line.error { color: var(--error); }
+    .log-line.speaking { color: var(--accent); }
+    .log-line.spoken { color: var(--ok); }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>tts</h1>
+      <div class="hint">Cross-platform speech synthesis — uses the OS's built-in engine.</div>
+    </div>
+    <div class="status" id="status"><span class="dot"></span><span id="status-text">loading…</span></div>
+  </header>
+
+  <main>
+    <div class="card" id="install-card" hidden>
+      <h2>Setup required</h2>
+      <div class="install-hint">
+        <p id="install-msg">No TTS engine detected on this host.</p>
+        <div class="copy-row">
+          <code id="install-cmd"></code>
+          <button id="install-copy" class="ghost" title="Copy">copy</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" id="info-card">
+      <h2>Engine</h2>
+      <div class="meta">
+        <div class="kv"><div class="k">Platform</div><div class="v" id="kv-platform">—</div></div>
+        <div class="kv"><div class="k">Backend</div><div class="v" id="kv-backend">—</div></div>
+        <div class="kv"><div class="k">Voices</div><div class="v" id="kv-voices">—</div></div>
+      </div>
+    </div>
+
+    <div class="card" id="speak-card">
+      <h2>Speak</h2>
+      <div class="row" style="margin-bottom: 10px;">
+        <label for="voice">Voice</label>
+        <select id="voice"><option value="">— default —</option></select>
+        <label for="rate" style="margin-left: 12px;">Rate</label>
+        <input type="text" id="rate" placeholder="auto" style="width: 80px;" />
+        <button id="save-default" class="ghost" title="Save as this node's default_voice">save as default</button>
+      </div>
+      <textarea id="text" placeholder="Type something to say…">Hello, my name is brAIn.</textarea>
+      <div class="row" style="margin-top: 10px;">
+        <button id="speak" class="primary">▶ Speak</button>
+        <button id="cancel" class="ghost">■ Stop</button>
+        <span class="hint" id="speak-status"></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Recent activity</h2>
+      <div class="log" id="log"><div class="hint">No activity yet.</div></div>
+    </div>
+  </main>
+
+  <script>
+    const nodeId = window.location.pathname.split('/nodes/')[1]?.split('/ui')[0];
+    const apiBase = window.location.origin;
+
+    const els = {
+      status: document.getElementById('status'),
+      statusText: document.getElementById('status-text'),
+      installCard: document.getElementById('install-card'),
+      installMsg: document.getElementById('install-msg'),
+      installCmd: document.getElementById('install-cmd'),
+      installCopy: document.getElementById('install-copy'),
+      kvPlatform: document.getElementById('kv-platform'),
+      kvBackend: document.getElementById('kv-backend'),
+      kvVoices: document.getElementById('kv-voices'),
+      voice: document.getElementById('voice'),
+      rate: document.getElementById('rate'),
+      saveDefault: document.getElementById('save-default'),
+      text: document.getElementById('text'),
+      speak: document.getElementById('speak'),
+      cancel: document.getElementById('cancel'),
+      speakStatus: document.getElementById('speak-status'),
+      log: document.getElementById('log'),
+    };
+
+    let lastMessageId = null;
+    let defaultVoice = null;
+
+    function escapeHtml(s) {
+      return String(s ?? '').replace(/[&<>"']/g, (c) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+      }[c]));
+    }
+
+    function setStatus(state, text) {
+      els.status.className = `status ${state}`;
+      els.statusText.textContent = text;
+    }
+
+    function platformLabel(p) {
+      if (p === 'darwin') return 'macOS';
+      if (p === 'win32') return 'Windows';
+      if (p === 'linux') return 'Linux';
+      return p || '—';
+    }
+
+    function applyReady(meta) {
+      const platform = meta.platform || '—';
+      const backend = meta.backend || 'none';
+      const voices = Array.isArray(meta.voices) ? meta.voices : [];
+      els.kvPlatform.textContent = platformLabel(platform);
+      els.kvBackend.textContent = backend;
+      els.kvVoices.textContent = String(voices.length);
+
+      // Voice dropdown — group by language and sort within each group.
+      // Otherwise the OS-given order spreads e.g. French voices across the
+      // list and the user can't find a specific one without scanning all 186.
+      const prev = els.voice.value;
+      els.voice.innerHTML = '<option value="">— default —</option>';
+      const userLang = (navigator.language || 'en').slice(0, 2).toLowerCase();
+      const byLang = new Map();
+      for (const v of voices) {
+        const lang = v.language || 'unknown';
+        if (!byLang.has(lang)) byLang.set(lang, []);
+        byLang.get(lang).push(v);
+      }
+      const langs = Array.from(byLang.keys()).sort((a, b) => {
+        // User locale first, then alphabetical.
+        const aMatch = a.toLowerCase().startsWith(userLang);
+        const bMatch = b.toLowerCase().startsWith(userLang);
+        if (aMatch !== bMatch) return aMatch ? -1 : 1;
+        return a.localeCompare(b);
+      });
+      for (const lang of langs) {
+        const group = document.createElement('optgroup');
+        group.label = lang;
+        const sorted = byLang.get(lang).slice().sort((a, b) => a.name.localeCompare(b.name));
+        for (const v of sorted) {
+          const opt = document.createElement('option');
+          opt.value = v.name;
+          opt.textContent = v.name;
+          if (v.description) opt.title = v.description;
+          group.appendChild(opt);
+        }
+        els.voice.appendChild(group);
+      }
+      if (prev) els.voice.value = prev;
+      else if (defaultVoice) els.voice.value = defaultVoice;
+
+      if (backend === 'none') {
+        setStatus('warn', 'no engine');
+        els.installCard.hidden = false;
+        els.installMsg.textContent = platform === 'linux'
+          ? 'No TTS engine on this Linux host. Install espeak-ng:'
+          : `No TTS engine available for platform "${platform}".`;
+        els.installCmd.textContent = meta.install_hint || '';
+        els.speak.disabled = true;
+      } else {
+        setStatus('ok', `${backend} ready`);
+        els.installCard.hidden = true;
+        els.speak.disabled = false;
+      }
+    }
+
+    async function fetchNetwork() {
+      try {
+        const res = await fetch(`${apiBase}/network`);
+        const data = await res.json();
+        const me = data.nodes?.find((n) => n.id === nodeId);
+        if (me) {
+          defaultVoice = me.config_overrides?.default_voice || null;
+          if (defaultVoice && !els.voice.value) els.voice.value = defaultVoice;
+          if (me.config_overrides?.default_rate && !els.rate.value) {
+            els.rate.value = String(me.config_overrides.default_rate);
+          }
+        }
+      } catch { /* ignore */ }
+    }
+
+    async function pollMessages() {
+      try {
+        const res = await fetch(`${apiBase}/nodes/${nodeId}/ui/messages`);
+        if (!res.ok) {
+          setStatus('err', 'node not running');
+          return;
+        }
+        const messages = await res.json();
+        // Walk forward from where we stopped last time.
+        let startIdx = 0;
+        if (lastMessageId) {
+          const idx = messages.findIndex((m) => m.id === lastMessageId);
+          if (idx >= 0) startIdx = idx + 1;
+        }
+        for (const msg of messages.slice(startIdx)) {
+          handleMessage(msg);
+          lastMessageId = msg.id;
+        }
+      } catch {
+        setStatus('err', 'disconnected');
+      }
+    }
+
+    function handleMessage(msg) {
+      if (msg.topic === 'tts.status' && msg.metadata?.state === 'ready') {
+        applyReady(msg.metadata);
+        return;
+      }
+      if (msg.topic === 'tts.status') {
+        const state = msg.metadata?.state || '?';
+        const text = msg.metadata?.text || msg.payload?.content || '';
+        const voice = msg.metadata?.voice || '';
+        appendLog(state, text, voice, msg.timestamp);
+        if (state === 'speaking') els.speakStatus.textContent = '▶ speaking…';
+        else if (state === 'spoken') els.speakStatus.textContent = '✓ done';
+        else if (state === 'cancelled') els.speakStatus.textContent = '■ cancelled';
+        else if (state === 'error') els.speakStatus.textContent = `⚠ ${msg.payload?.content ?? 'error'}`;
+        return;
+      }
+      if (msg.topic === 'tts.voices' && Array.isArray(msg.metadata?.voices)) {
+        applyReady(msg.metadata);
+      }
+    }
+
+    function appendLog(state, text, voice, ts) {
+      const empty = els.log.querySelector('.hint');
+      empty?.remove();
+      const div = document.createElement('div');
+      div.className = `log-line ${state}`;
+      const t = ts ? new Date(ts).toLocaleTimeString() : '';
+      const voicePart = voice ? ` [${voice}]` : '';
+      div.textContent = `${t}  ${state}${voicePart}  ${text || ''}`.trim();
+      els.log.insertBefore(div, els.log.firstChild);
+      while (els.log.children.length > 50) els.log.lastChild.remove();
+    }
+
+    async function speak() {
+      const text = els.text.value.trim();
+      if (!text) return;
+      const metadata = {};
+      const voice = els.voice.value;
+      if (voice) metadata.voice = voice;
+      const rateRaw = els.rate.value.trim();
+      if (rateRaw) {
+        const r = Number(rateRaw);
+        if (!Number.isNaN(r)) metadata.rate = r;
+      }
+      els.speakStatus.textContent = 'sending…';
+      try {
+        const res = await fetch(`${apiBase}/nodes/${nodeId}/ui/send`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            topic: 'tts.speak',
+            content: text,
+            criticality: 4,
+            from: 'system.tts-ui',
+            metadata,
+          }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      } catch (e) {
+        els.speakStatus.textContent = `error: ${e.message}`;
+      }
+    }
+
+    async function cancel() {
+      try {
+        await fetch(`${apiBase}/nodes/${nodeId}/ui/send`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            topic: 'tts.cancel',
+            content: '',
+            from: 'system.tts-ui',
+          }),
+        });
+      } catch { /* ignore */ }
+    }
+
+    async function saveAsDefault() {
+      const voice = els.voice.value;
+      const rateRaw = els.rate.value.trim();
+      const body = { default_voice: voice || null };
+      if (rateRaw) {
+        const r = Number(rateRaw);
+        if (!Number.isNaN(r)) body.default_rate = r;
+      } else {
+        body.default_rate = null;
+      }
+      try {
+        const res = await fetch(`${apiBase}/nodes/${nodeId}/config`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (res.ok) {
+          defaultVoice = voice || null;
+          els.saveDefault.textContent = 'saved';
+          setTimeout(() => { els.saveDefault.textContent = 'save as default'; }, 1500);
+        }
+      } catch { /* ignore */ }
+    }
+
+    els.speak.addEventListener('click', speak);
+    els.cancel.addEventListener('click', cancel);
+    els.saveDefault.addEventListener('click', saveAsDefault);
+    els.installCopy.addEventListener('click', () => {
+      const cmd = els.installCmd.textContent || '';
+      if (!cmd) return;
+      navigator.clipboard?.writeText(cmd).then(() => {
+        els.installCopy.textContent = 'copied';
+        setTimeout(() => { els.installCopy.textContent = 'copy'; }, 1200);
+      });
+    });
+    els.text.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) speak();
+    });
+
+    fetchNetwork();
+    pollMessages();
+    setInterval(pollMessages, 1500);
+    setInterval(fetchNetwork, 5000);
+  </script>
+</body>
+</html>

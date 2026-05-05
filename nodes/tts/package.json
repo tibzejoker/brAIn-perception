@@ -1,0 +1,28 @@
+{
+  "name": "@brain/node-tts",
+  "version": "0.1.0",
+  "description": "brAIn node — cross-platform text-to-speech using built-in OS engines (say / espeak-ng / System.Speech). Listens on tts.speak.",
+  "license": "MIT",
+  "main": "dist/handler.js",
+  "types": "dist/handler.d.ts",
+  "files": [
+    "dist",
+    "config.json",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "@brain/core": "workspace:*",
+    "@brain/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.4.0"
+  }
+}

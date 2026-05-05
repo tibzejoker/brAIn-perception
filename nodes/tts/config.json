@@ -1,0 +1,41 @@
+{
+  "name": "tts",
+  "description": "Cross-platform text-to-speech using built-in OS engines: 'say' on macOS, 'espeak-ng' on Linux, PowerShell System.Speech on Windows. Lightweight (no ML model). Listens on tts.speak, exposes voices via tts.voices.list.",
+  "tags": [
+    "service",
+    "tts",
+    "speech",
+    "perception"
+  ],
+  "default_authority": 1,
+  "default_priority": 5,
+  "default_subscriptions": [
+    {
+      "topic": "tts.speak",
+      "description": "Speak a piece of text aloud. Payload: TextPayload with `content`. Optional metadata: `voice` (string, picked from tts.voices.list), `rate` (number, words/min — backend-specific).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "content": { "type": "string" }
+        },
+        "required": ["content"]
+      }
+    },
+    {
+      "topic": "tts.voices.list",
+      "description": "Request the list of available voices on this host. Reply is published on tts.voices."
+    },
+    {
+      "topic": "tts.cancel",
+      "description": "Stop the current utterance immediately."
+    }
+  ],
+  "default_publishes": [
+    "tts.voices",
+    "tts.status"
+  ],
+  "has_ui": true,
+  "supports_transport": [
+    "process"
+  ]
+}
