@@ -37,6 +37,9 @@ class RawSegment:
     # with other real-time streams after STT inflates the effective
     # delivery timestamp.
     ts_end: float | None = None
+    # Profiling: time taken by STT (ms). Set by VadSttEngine, used by
+    # the WS consumer to print a per-segment timing summary.
+    stt_ms: float | None = None
 
 
 class Engine:
@@ -264,11 +267,11 @@ class VadSttEngine(Engine):
         self, pcm: np.ndarray, t_start: float, t_end: float, ts_end: float,
     ) -> None:
         try:
-            t0 = time.monotonic()
+            stt_t0 = time.monotonic()
             loop = asyncio.get_running_loop()
             text = await loop.run_in_executor(None, self._stt.transcribe, pcm)
-            log.info("STT %.2fs–%.2fs done in %.2fs → %r",
-                     t_start, t_end, time.monotonic() - t0, text)
+            stt_ms = (time.monotonic() - stt_t0) * 1000
+            log.info("STT %.2fs–%.2fs done in %dms → %r", t_start, t_end, int(stt_ms), text)
             if not text:
                 return
             seg = RawSegment(
@@ -280,6 +283,7 @@ class VadSttEngine(Engine):
                 sample_rate=self.SAMPLE_RATE,
                 confidence=0.9,
                 ts_end=ts_end,
+                stt_ms=stt_ms,
             )
             try:
                 self._queue.put_nowait(seg)

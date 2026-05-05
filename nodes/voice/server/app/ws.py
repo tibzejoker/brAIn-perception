@@ -5,6 +5,7 @@ import asyncio
 import gc
 import json
 import logging
+import time
 from collections import defaultdict
 from typing import Any, Callable
 
@@ -105,15 +106,18 @@ class SessionHub:
         if sid is None:
             return
 
+        seg_t0 = time.monotonic()
         identity = self._identity.resolve(raw.pcm, raw.sample_rate, raw.diar_label)
         if identity is None:
             return
+        identity_ms = (time.monotonic() - seg_t0) * 1000
         speaker_id, name = identity.speaker_id, identity.name
         confidence, provisional, is_new = identity.confidence, identity.provisional, identity.is_new
 
         if is_new:
             await self._broadcast(sid, SpeakerNewEvent(speaker_id=speaker_id, name=name))
 
+        bcast_t0 = time.monotonic()
         await self._broadcast(
             sid,
             SegmentEvent(
@@ -127,6 +131,25 @@ class SessionHub:
                 provisional=provisional,
                 confidence=confidence,
             ),
+        )
+        broadcast_ms = (time.monotonic() - bcast_t0) * 1000
+
+        # Single per-segment timing line — `grep "voice timing"` to
+        # see what's slow at a glance.
+        audio_s = raw.t_end - raw.t_start
+        stt_ms = raw.stt_ms or 0.0
+        e2e_ms = ((time.time() - raw.ts_end) * 1000) if raw.ts_end else 0.0
+        log.info(
+            "voice timing audio=%.2fs stt=%dms embed=%dms scan=%dms update=%dms identity=%dms broadcast=%dms e2e=%dms text=%r",
+            audio_s,
+            int(stt_ms),
+            int(identity.embed_ms),
+            int(identity.scan_ms),
+            int(identity.update_ms),
+            int(identity_ms),
+            int(broadcast_ms),
+            int(e2e_ms),
+            raw.text,
         )
 
     async def _broadcast(self, session_id: str, event: Any) -> None:

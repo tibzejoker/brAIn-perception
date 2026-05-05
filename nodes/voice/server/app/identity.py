@@ -9,6 +9,7 @@ shouting, whispered) without averaging them into a useless mean centroid.
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 
 import numpy as np
@@ -26,6 +27,10 @@ class IdentityResult:
     confidence: float
     is_new: bool
     provisional: bool
+    # Profiling — populated by `resolve()`.
+    embed_ms: float = 0.0
+    scan_ms: float = 0.0
+    update_ms: float = 0.0
 
 
 class IdentityResolver:
@@ -86,18 +91,24 @@ class IdentityResolver:
         if duration_ms < settings.min_segment_ms:
             return None
 
+        t0 = time.monotonic()
         embedding = self._embedder.embed(segment_pcm, sample_rate)
         embedding = _l2_normalize(embedding)
+        embed_ms = (time.monotonic() - t0) * 1000
 
+        t1 = time.monotonic()
         voiceprints = self._store.all_voiceprints()
         if not voiceprints:
             profile = self._store.create(centroid=embedding)
             log.info("identity: first profile created %s", profile["id"])
-            return IdentityResult(profile["id"], profile["name"], 1.0, True, False)
+            return IdentityResult(
+                profile["id"], profile["name"], 1.0, True, False,
+                embed_ms=embed_ms,
+                scan_ms=(time.monotonic() - t1) * 1000,
+            )
 
         # Best voiceprint across all profiles wins.
         best_vp_id, best_pid, best_sim = "", "", -1.0
-        # For logging: best per profile.
         per_profile_best: dict[str, float] = {}
         for vp_id, pid, centroid in voiceprints:
             sim = float(np.dot(embedding, centroid))
@@ -105,6 +116,7 @@ class IdentityResolver:
                 per_profile_best[pid] = sim
             if sim > best_sim:
                 best_vp_id, best_pid, best_sim = vp_id, pid, sim
+        scan_ms = (time.monotonic() - t1) * 1000
 
         sims_str = ", ".join(
             f"{pid[:12]}={sim:+.3f}"
@@ -116,26 +128,37 @@ class IdentityResolver:
         )
 
         if best_sim >= settings.match_threshold:
+            t2 = time.monotonic()
             prev = self._store.voiceprints_for(best_pid)
             prev_centroid = next((c for vid, c in prev if vid == best_vp_id), None)
             updated = _ema_update(prev_centroid, embedding, settings.ema_decay)
             self._store.update_voiceprint(best_vp_id, updated)
+            update_ms = (time.monotonic() - t2) * 1000
             profile = self._store.get(best_pid)
             assert profile is not None
             log.info("identity: MATCH → %s (%s) sim=%.3f vp=%s",
                      profile["id"], profile["name"], best_sim, best_vp_id)
-            return IdentityResult(profile["id"], profile["name"], best_sim, False, False)
+            return IdentityResult(
+                profile["id"], profile["name"], best_sim, False, False,
+                embed_ms=embed_ms, scan_ms=scan_ms, update_ms=update_ms,
+            )
 
         if best_sim >= settings.uncertain_threshold:
             profile = self._store.get(best_pid)
             assert profile is not None
             log.info("identity: UNCERTAIN → %s (%s) sim=%.3f", profile["id"], profile["name"], best_sim)
-            return IdentityResult(profile["id"], profile["name"], best_sim, False, True)
+            return IdentityResult(
+                profile["id"], profile["name"], best_sim, False, True,
+                embed_ms=embed_ms, scan_ms=scan_ms,
+            )
 
         profile = self._store.create(centroid=embedding)
         log.info("identity: NEW profile %s (best_sim=%.3f below uncertain=%.2f)",
                  profile["id"], best_sim, settings.uncertain_threshold)
-        return IdentityResult(profile["id"], profile["name"], 1.0, True, False)
+        return IdentityResult(
+            profile["id"], profile["name"], 1.0, True, False,
+            embed_ms=embed_ms, scan_ms=scan_ms,
+        )
 
     def _resolve_by_label(self, diar_label: str) -> IdentityResult:
         existing_id = self._label_to_profile.get(diar_label)
