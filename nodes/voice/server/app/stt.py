@@ -153,6 +153,7 @@ class FasterWhisperStt:
         segments, _ = self._model.transcribe(
             audio,
             language=self._language,
+            task="transcribe",  # never translate — see MlxWhisperStt comment.
             beam_size=1,
             vad_filter=False,
             condition_on_previous_text=False,
@@ -224,17 +225,28 @@ class MlxWhisperStt:
         if sample_rate != 16000:
             raise ValueError("mlx-whisper pipeline expects 16 kHz input")
         audio = pcm_int16.astype(np.float32) / 32768.0
+        lang = self._language
+        log.debug("mlx transcribe: lang=%s len=%.2fs", lang, len(audio) / sample_rate)
         result = self._mlx.transcribe(
             audio,
             path_or_hf_repo=self._model,
-            language=self._language,
+            language=lang,
+            # Force transcribe (not translate). Without this, when the
+            # spoken language differs from `language` the model can
+            # default to translation, which is what produced English
+            # output for French audio after a runtime language swap.
+            task="transcribe",
             condition_on_previous_text=False,
-            # See FasterWhisperStt.transcribe — same anti-hallucination
-            # thresholds. Whisper's mlx port reads them from kwargs.
             compression_ratio_threshold=2.4,
             logprob_threshold=-1.0,
             no_speech_threshold=0.6,
         )
+        # If the result reports a different language than we asked for,
+        # mlx swallowed our override silently — surface that loudly.
+        got_lang = result.get("language")
+        if got_lang and got_lang != lang:
+            log.warning("mlx-whisper ignored language override: asked %s, got %s",
+                        lang, got_lang)
         return (result.get("text") or "").strip()
 
     def set_language(self, language: str) -> None:
