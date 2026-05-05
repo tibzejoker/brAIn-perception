@@ -61,6 +61,12 @@ class Engine:
     def set_tuning(self, **kwargs: float) -> dict[str, float]:  # noqa: ARG002
         return self.get_tuning()
 
+    def get_language(self) -> str:
+        return ""
+
+    def set_language(self, language: str) -> str:  # noqa: ARG002
+        return self.get_language()
+
 
 class StubEngine(Engine):
     """Phase 1 stub — fake diarization via silence-based speaker rotation."""
@@ -240,6 +246,13 @@ class VadSttEngine(Engine):
         if "min_segment_ms" in kwargs:
             settings.min_segment_ms = int(kwargs["min_segment_ms"])
         return self.get_tuning()
+
+    def get_language(self) -> str:
+        return self._stt.get_language()
+
+    def set_language(self, language: str) -> str:
+        self._stt.set_language(language)
+        return self._stt.get_language()
 
     async def push_audio(self, frame: bytes) -> None:
         if self._session_id is None:

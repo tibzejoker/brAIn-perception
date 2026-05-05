@@ -112,6 +112,24 @@ def build_router(store: ProfileStore, hub: SessionHub, capture: LocalCapture) ->
             raise HTTPException(409, "voice engine not loaded — start a capture session first")
         return hub.engine.set_tuning(**body)
 
+    @router.get("/language")
+    def get_language() -> dict[str, str]:
+        if hub.engine is None:
+            return {"language": settings.language}
+        return {"language": hub.engine.get_language()}
+
+    @router.patch("/language")
+    def patch_language(body: dict[str, str]) -> dict[str, str]:
+        lang = (body.get("language") or "").strip()
+        if not lang:
+            raise HTTPException(400, "missing 'language' (e.g. 'fr', 'en', 'es')")
+        if hub.engine is None:
+            # No active capture yet — cache on settings so the next
+            # build_engine() picks it up.
+            settings.language = lang
+            return {"language": lang}
+        return {"language": hub.engine.set_language(lang)}
+
     @router.get("/capture/devices")
     def capture_devices() -> list[dict]:
         try:

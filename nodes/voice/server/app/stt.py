@@ -36,6 +36,8 @@ log = logging.getLogger(__name__)
 
 class Stt(Protocol):
     def transcribe(self, pcm_int16: np.ndarray, sample_rate: int = 16000) -> str: ...
+    def set_language(self, language: str) -> None: ...
+    def get_language(self) -> str: ...
 
 
 # === auto-detection ===
@@ -157,6 +159,13 @@ class FasterWhisperStt:
         )
         return " ".join(s.text.strip() for s in segments).strip()
 
+    def set_language(self, language: str) -> None:
+        log.info("faster-whisper language: %s → %s", self._language, language)
+        self._language = language
+
+    def get_language(self) -> str:
+        return self._language
+
 
 # === MLX (Apple Silicon) ===
 
@@ -215,6 +224,13 @@ class MlxWhisperStt:
             condition_on_previous_text=False,
         )
         return (result.get("text") or "").strip()
+
+    def set_language(self, language: str) -> None:
+        log.info("mlx-whisper language: %s → %s", self._language, language)
+        self._language = language
+
+    def get_language(self) -> str:
+        return self._language
 
 
 # === factory ===

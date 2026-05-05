@@ -182,6 +182,24 @@
     <div class="pane area-tuning">
       <h2>Tuning</h2>
       <div class="pane-body">
+        <div class="tuning-row" style="grid-template-columns: 90px 1fr 60px;">
+          <label for="lang-select">Language</label>
+          <select id="lang-select" style="background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 4px 6px; font-size: 12px;">
+            <option value="en">English</option>
+            <option value="fr">Français</option>
+            <option value="es">Español</option>
+            <option value="de">Deutsch</option>
+            <option value="it">Italiano</option>
+            <option value="pt">Português</option>
+            <option value="nl">Nederlands</option>
+            <option value="ja">日本語</option>
+            <option value="zh">中文</option>
+            <option value="ar">العربية</option>
+            <option value="ru">Русский</option>
+            <option value="auto">auto-detect</option>
+          </select>
+          <span class="val" id="lang-status"></span>
+        </div>
         <div id="tuning-rows"><div class="empty">loading…</div></div>
       </div>
     </div>
@@ -216,6 +234,8 @@
       speakersList: document.getElementById("speakers-list"),
       speakersClear: document.getElementById("speakers-clear"),
       tuningRows: document.getElementById("tuning-rows"),
+      langSelect: document.getElementById("lang-select"),
+      langStatus: document.getElementById("lang-status"),
       transcript: document.getElementById("transcript"),
       tlCanvas: document.getElementById("timeline"),
       tlFit: document.getElementById("tl-fit"),
@@ -858,9 +878,41 @@
     els.start.onclick = start;
     els.stop.onclick = stop;
 
+    // Language dropdown — load current value, persist on change.
+    async function loadLanguage() {
+      try {
+        const res = await fetch(`${SERVER_URL}/api/language`);
+        const data = await res.json();
+        if (data.language) {
+          els.langSelect.value = data.language;
+        }
+      } catch (e) {
+        console.warn("loadLanguage failed", e);
+      }
+    }
+    els.langSelect.addEventListener("change", async () => {
+      const lang = els.langSelect.value;
+      els.langStatus.textContent = "saving…";
+      try {
+        const res = await fetch(`${SERVER_URL}/api/language`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ language: lang }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        els.langStatus.textContent = `→ ${data.language}`;
+        setTimeout(() => { els.langStatus.textContent = ""; }, 2000);
+      } catch (e) {
+        els.langStatus.textContent = "error";
+        console.error("language patch failed", e);
+      }
+    });
+
     loadDevices().then(refreshStatus);
     loadSpeakers();
     loadTuning();
+    loadLanguage();
     drawTimeline();
     setInterval(refreshStatus, 2000);
     setInterval(loadSpeakers, 5000);
