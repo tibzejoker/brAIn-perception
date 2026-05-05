@@ -156,6 +156,13 @@ class FasterWhisperStt:
             beam_size=1,
             vad_filter=False,
             condition_on_previous_text=False,
+            # Anti-hallucination guards. Without these whisper happily
+            # generates "super super super…" loops on noisy/short
+            # segments, taking 5-15× the audio duration to "decode" the
+            # nonsense and blocking the queue for everything after.
+            compression_ratio_threshold=2.4,
+            log_prob_threshold=-1.0,
+            no_speech_threshold=0.6,
         )
         return " ".join(s.text.strip() for s in segments).strip()
 
@@ -222,6 +229,11 @@ class MlxWhisperStt:
             path_or_hf_repo=self._model,
             language=self._language,
             condition_on_previous_text=False,
+            # See FasterWhisperStt.transcribe — same anti-hallucination
+            # thresholds. Whisper's mlx port reads them from kwargs.
+            compression_ratio_threshold=2.4,
+            logprob_threshold=-1.0,
+            no_speech_threshold=0.6,
         )
         return (result.get("text") or "").strip()
 

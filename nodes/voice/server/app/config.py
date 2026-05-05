@@ -12,11 +12,12 @@ class Settings(BaseSettings):
 
     stt_model: str = "medium"
     stt_backend: str = "auto"  # auto | mlx | faster-whisper
-    # Pool size for STT inference. 1 = strictly sequential (avoids CPU
-    # cores fighting each other on faster-whisper). Bump to 2-4 when
-    # the backend is GPU/ANE (mlx, CUDA) and short segments queue
-    # behind long ones noticeably.
-    stt_parallel: int = 1
+    # Pool size for STT inference. 2 lets a slow segment (a hallucinated
+    # decode loop, an unusually long clip) not block the next one
+    # entirely — the second worker drains the queue in parallel. With
+    # MLX / CUDA the GPU handles concurrent transcribes fine; on pure
+    # CPU set this to 1 so cores aren't fighting each other.
+    stt_parallel: int = 2
     language: str = "en"
 
     diar_model: str = "streaming-sortformer-4spk-v2.1"
