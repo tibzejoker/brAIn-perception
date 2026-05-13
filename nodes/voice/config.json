@@ -12,15 +12,62 @@
   "default_subscriptions": [
     {
       "topic": "voice.control",
-      "description": "Voice node control commands (e.g. enable/disable VAD, switch model). Sender pushes JSON; the Python sidecar honours it."
+      "description": "Voice node control commands (e.g. enable/disable VAD, switch model). Sender pushes JSON; the Python sidecar honours it.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["start", "stop", "status"],
+            "description": "Control verb forwarded to the Python sidecar."
+          },
+          "session_id": {
+            "type": "string",
+            "description": "Optional session identifier; defaults to 'default' server-side."
+          }
+        },
+        "required": ["action"],
+        "additionalProperties": false
+      }
     },
     {
       "topic": "voice.speaker.rename",
-      "description": "Rename a tracked speaker. Payload: {speaker_id, new_name}."
+      "description": "Rename a tracked speaker. Payload: {speaker_id, new_name}.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "speaker_id": {
+            "type": "string",
+            "description": "Diarization-assigned speaker ID to rename."
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "New human-readable label for that speaker."
+          }
+        },
+        "required": ["speaker_id", "name"],
+        "additionalProperties": false
+      }
     },
     {
       "topic": "voice.speaker.merge",
-      "description": "Merge two speaker IDs into one (manual disambiguation). Payload: {keep, drop}."
+      "description": "Merge two speaker IDs into one (manual disambiguation). Payload: {keep, drop}.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "keep": {
+            "type": "string",
+            "description": "Speaker ID to retain after the merge."
+          },
+          "drop": {
+            "type": "string",
+            "description": "Speaker ID to fold into 'keep'; subsequent events get re-attributed."
+          }
+        },
+        "required": ["keep", "drop"],
+        "additionalProperties": false
+      }
     }
   ],
   "default_publishes": [

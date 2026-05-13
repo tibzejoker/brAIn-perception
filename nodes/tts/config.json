@@ -23,11 +23,21 @@
     },
     {
       "topic": "tts.voices.list",
-      "description": "Request the list of available voices on this host. Reply is published on tts.voices."
+      "description": "Request the list of available voices on this host. Reply is published on tts.voices.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
     },
     {
       "topic": "tts.cancel",
-      "description": "Stop the current utterance immediately."
+      "description": "Stop the current utterance immediately.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
     }
   ],
   "default_publishes": [

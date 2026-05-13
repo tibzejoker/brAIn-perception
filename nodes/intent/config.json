@@ -12,23 +12,85 @@
   "default_subscriptions": [
     {
       "topic": "voice.transcript",
-      "description": "Finalised voice utterances from the voice node — fed into the correlator."
+      "description": "Finalised voice utterances from the voice node — fed into the correlator.",
+      "internal": true
     },
     {
       "topic": "gaze.target.resolved",
-      "description": "Resolved gaze targets from the gaze node — fed into the correlator."
+      "description": "Resolved gaze targets from the gaze node — fed into the correlator.",
+      "internal": true
     },
     {
       "topic": "intent.persons.create",
-      "description": "Manually create a person record (voice ↔ gaze ↔ name binding)."
+      "description": "Manually create a person record (voice ↔ gaze ↔ name binding).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Display name for the person. Defaults to 'Unknown' if omitted."
+          },
+          "color": {
+            "type": "string",
+            "description": "Optional UI color (e.g. hex like '#ff8800') for rendering this person."
+          },
+          "voice_profile_id": {
+            "type": ["string", "null"],
+            "description": "Voice profile id to bind to this person, or null if unbound."
+          },
+          "gaze_profile_id": {
+            "type": ["string", "null"],
+            "description": "Gaze profile id to bind to this person, or null if unbound."
+          }
+        },
+        "additionalProperties": false
+      }
     },
     {
       "topic": "intent.persons.update",
-      "description": "Update an existing person record."
+      "description": "Update an existing person record.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Id of the person record to patch."
+          },
+          "name": {
+            "type": "string",
+            "description": "New display name."
+          },
+          "color": {
+            "type": "string",
+            "description": "New UI color."
+          },
+          "voice_profile_id": {
+            "type": ["string", "null"],
+            "description": "New voice profile id, or null to unbind."
+          },
+          "gaze_profile_id": {
+            "type": ["string", "null"],
+            "description": "New gaze profile id, or null to unbind."
+          }
+        },
+        "additionalProperties": false
+      }
     },
     {
       "topic": "intent.persons.delete",
-      "description": "Delete a person record by id."
+      "description": "Delete a person record by id.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Id of the person record to delete."
+          }
+        },
+        "additionalProperties": false
+      }
     }
   ],
   "default_publishes": [
