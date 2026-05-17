@@ -5,38 +5,93 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>tts — text-to-speech</title>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
-      --bg: #0f172a;
-      --panel: #111827;
-      --panel-2: #1e293b;
-      --border: #334155;
-      --text: #e2e8f0;
-      --muted: #94a3b8;
-      --accent: #f59e0b;
-      --ok: #22c55e;
-      --error: #ef4444;
-      --warn: #f59e0b;
+      --bg: #0A0A0A;
+      --surface: #111111;
+      --elevated: #1A1A1A;
+      --border: #262626;
+      --border-strong: #333333;
+      --text: #EDEDED;
+      --text-dim: #A1A1A1;
+      --text-muted: #707070;
+      --accent: #EDEDED;
+      --accent-fg: #0A0A0A;
+      --danger: #F84E4E;
+      --success: #4ADE80;
+      --warning: #FBBF24;
+      --radius-sm: 4px;
+      --radius: 6px;
+      --radius-lg: 10px;
+      --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 24px; --space-6: 32px;
+      --font-sans: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+      --font-mono: ui-monospace, 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+      /* Back-compat aliases. */
+      --panel: var(--surface);
+      --panel-2: var(--elevated);
+      --muted: var(--text-dim);
+      --error: var(--danger);
+      --ok: var(--success);
+      --warn: var(--warning);
     }
-    html, body { height: 100%; background: var(--bg); color: var(--text); font: 13px/1.4 ui-sans-serif, system-ui, sans-serif; }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; background: var(--bg); color: var(--text);
+      font-family: var(--font-sans); font-size: 13px; line-height: 1.5;
+      font-feature-settings: "cv11", "ss01", "tnum";
+      -webkit-font-smoothing: antialiased;
+    }
+    button {
+      background: var(--elevated); color: var(--text);
+      border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 6px 12px; font-size: 13px; font-family: inherit; cursor: pointer;
+      transition: background 0.1s ease, border-color 0.1s ease;
+    }
+    button:hover { background: var(--border); border-color: var(--border-strong); }
+    button:active { background: var(--border-strong); }
+    button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+    button.primary:hover { filter: brightness(1.12); }
+    button.danger { background: var(--danger); border-color: var(--danger); color: white; }
+    button.danger:hover { filter: brightness(1.12); }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    input, select, textarea {
+      background: var(--surface); color: var(--text);
+      border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 6px 10px; font-size: 13px; font-family: inherit; outline: none;
+      transition: border-color 0.1s ease;
+    }
+    input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+    input::placeholder { color: var(--text-muted); }
+    code, pre { font-family: var(--font-mono); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 1px 6px; font-size: 12px; }
+    pre { padding: var(--space-3); overflow-x: auto; }
+    hr { border: none; border-top: 1px solid var(--border); margin: var(--space-3) 0; }
+    h1, h2, h3 { font-weight: 600; margin: 0 0 var(--space-3); letter-spacing: -0.01em; }
+    h1 { font-size: 18px; }
+    h2 { font-size: 15px; }
+    h3 { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .muted { color: var(--text-dim); }
+    .dim { color: var(--text-muted); }
+
+    html, body { height: 100%; }
     body { display: flex; flex-direction: column; }
 
     header {
       display: flex; align-items: center; justify-content: space-between;
-      padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--panel);
+      padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--surface);
       flex-shrink: 0;
     }
-    header h1 { font-size: 14px; color: var(--accent); letter-spacing: 0.02em; }
-    .hint { font-size: 11px; color: var(--muted); }
+    header h1 { font-size: 14px; color: var(--text); letter-spacing: 0.02em; margin: 0; }
+    .hint { font-size: 11px; color: var(--text-dim); }
     .status {
       display: inline-flex; align-items: center; gap: 6px;
       padding: 4px 10px; border-radius: 12px;
-      background: var(--bg); border: 1px solid var(--border); font-size: 11px;
+      background: var(--surface); border: 1px solid var(--border); font-size: 11px;
     }
-    .status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
-    .status.ok .dot { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
-    .status.warn .dot { background: var(--warn); }
-    .status.err .dot { background: var(--error); }
+    .status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); }
+    .status.ok .dot { background: var(--success); }
+    .status.warn .dot { background: var(--warning); }
+    .status.err .dot { background: var(--danger); }
 
     main {
       flex: 1; padding: 16px; min-height: 0; overflow: auto;
@@ -44,75 +99,64 @@
     }
 
     .card {
-      background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
       padding: 14px;
     }
     .card h2 {
-      font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;
-      color: var(--muted); margin-bottom: 10px;
+      font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
+      color: var(--text-dim); margin: 0 0 10px; font-weight: 600;
     }
 
     .install-hint {
-      background: rgba(245,158,11,0.08); border: 1px dashed var(--warn);
-      border-radius: 4px; padding: 12px; color: var(--text);
+      background: var(--elevated); border: 1px dashed var(--border-strong);
+      border-radius: var(--radius-sm); padding: 12px; color: var(--text);
     }
-    .install-hint p { margin-bottom: 8px; font-size: 12px; }
+    .install-hint p { margin: 0 0 8px; font-size: 12px; }
     .copy-row {
       display: flex; gap: 6px; align-items: stretch;
-      background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
+      background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm);
       padding: 6px 8px;
     }
     .copy-row code {
-      flex: 1; font: 12px ui-monospace, monospace;
-      color: var(--accent); white-space: pre; overflow-x: auto;
-      align-self: center;
+      flex: 1; font-family: var(--font-mono); font-size: 12px;
+      color: var(--text); background: transparent; border: 0; padding: 0;
+      white-space: pre; overflow-x: auto; align-self: center;
     }
 
-    select, input[type=text], button {
-      background: var(--bg); color: var(--text); border: 1px solid var(--border);
-      padding: 6px 10px; border-radius: 4px; font: inherit; font-size: 12px;
-    }
-    select:hover, button:hover:not(:disabled) { border-color: var(--accent); }
-    button { cursor: pointer; }
-    button:disabled { opacity: 0.4; cursor: not-allowed; }
-    button.primary { background: var(--accent); color: #0f172a; border-color: var(--accent); font-weight: 600; }
-    button.primary:hover:not(:disabled) { background: #d97706; }
-    button.ghost { background: transparent; color: var(--muted); }
-    button.ghost:hover { color: var(--text); }
+    button.ghost { background: transparent; color: var(--text-dim); border-color: var(--border); }
+    button.ghost:hover { background: var(--elevated); color: var(--text); border-color: var(--border-strong); }
 
     .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-    .row label { font-size: 11px; color: var(--muted); margin-right: 4px; }
+    .row label { font-size: 11px; color: var(--text-dim); margin-right: 4px; }
     .row select { min-width: 200px; }
     .row .grow { flex: 1; min-width: 200px; }
 
     textarea {
       width: 100%; min-height: 80px;
-      background: var(--bg); color: var(--text); border: 1px solid var(--border);
-      border-radius: 4px; padding: 8px 10px; font: inherit; font-size: 13px;
+      padding: 8px 10px; font-size: 13px;
       resize: vertical;
     }
-    textarea:focus { outline: none; border-color: var(--accent); }
 
     .meta {
       display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
       gap: 8px; margin-top: 8px;
     }
     .meta .kv {
-      background: var(--panel-2); border: 1px solid var(--border); border-radius: 4px;
+      background: var(--elevated); border: 1px solid var(--border); border-radius: var(--radius-sm);
       padding: 6px 10px;
     }
-    .meta .k { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+    .meta .k { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; }
     .meta .v { font-size: 13px; color: var(--text); font-variant-numeric: tabular-nums; }
 
     .log {
-      background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
+      background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm);
       padding: 8px; max-height: 180px; overflow-y: auto;
-      font: 11px ui-monospace, monospace;
+      font-family: var(--font-mono); font-size: 11px;
     }
     .log-line { padding: 2px 0; }
-    .log-line.error { color: var(--error); }
+    .log-line.error { color: var(--danger); }
     .log-line.speaking { color: var(--accent); }
-    .log-line.spoken { color: var(--ok); }
+    .log-line.spoken { color: var(--success); }
   </style>
 </head>
 <body>
