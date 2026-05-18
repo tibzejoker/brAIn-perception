@@ -12,6 +12,6 @@
     "dev:gaze:server": "cd nodes/gaze/server && .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8766 --reload"
   },
   "devDependencies": {
-    "typescript": "^5.4.0"
+    "typescript": "^6.0.3"
   }
 }
