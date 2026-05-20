@@ -20,7 +20,7 @@
  */
 import * as path from "node:path";
 import * as fs from "node:fs";
-import { BrainService, logger } from "@brain/core";
+import { BrainService, logger, getNodeDataRoot } from "@brain/core";
 import type { NodeHandler, NodeInfo, NodeOnSpawn, NodeTeardown } from "@brain/sdk";
 import { IntentStore, type Person } from "./store";
 import { Timeline, type GazeEvent, type VoiceSegment } from "./timeline";
@@ -28,9 +28,14 @@ import { IntentCorrelator, DEFAULT_CORRELATOR_CONFIG } from "./correlator";
 import { startIntentServer, type IntentServerHandle } from "./server";
 
 const SERVER_PORT = Number(process.env.INTENT_SERVER_PORT ?? "8767");
-const DB_DIR = process.env.INTENT_DB_DIR
-  ?? path.resolve(__dirname, "..", "..", "..", "data");
-const DB_PATH = path.join(DB_DIR, "intent.db");
+
+// Where intent.db lives. Resolved lazily (on first boot, after the framework
+// has wired its data root) so it lands in the shared <dataRoot>/ next to
+// brain.db — getNodeDataRoot() is <dataRoot>/nodes, so its parent is the
+// data root. INTENT_DB_DIR overrides for standalone/test runs.
+function resolveDbDir(): string {
+  return process.env.INTENT_DB_DIR ?? path.resolve(getNodeDataRoot(), "..");
+}
 
 let nodeId: string | null = null;
 let store: IntentStore | null = null;
@@ -60,8 +65,10 @@ function publish(topic: string, payload: Record<string, unknown>, criticality = 
 
 function ensureBoot(): Promise<void> {
   if (serverBoot) return serverBoot;
-  fs.mkdirSync(DB_DIR, { recursive: true });
-  store = new IntentStore(DB_PATH);
+  const dbDir = resolveDbDir();
+  const dbPath = path.join(dbDir, "intent.db");
+  fs.mkdirSync(dbDir, { recursive: true });
+  store = new IntentStore(dbPath);
   timeline = new Timeline();
   correlator = new IntentCorrelator(
     store, timeline, DEFAULT_CORRELATOR_CONFIG,
@@ -81,10 +88,10 @@ function ensureBoot(): Promise<void> {
   }).then((handle) => {
     server = handle;
     if (handle.spawned) {
-      logger.info({ port: SERVER_PORT, db: DB_PATH }, "intent node: server listening");
+      logger.info({ port: SERVER_PORT, db: dbPath }, "intent node: server listening");
     } else {
       logger.warn(
-        { port: SERVER_PORT, db: DB_PATH },
+        { port: SERVER_PORT, db: dbPath },
         "intent node: port already in use — attached to existing server (likely an orphan from a prior run; correlator runs anyway, persons writes go to the orphan's store)",
       );
     }
