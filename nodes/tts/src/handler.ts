@@ -265,6 +265,16 @@ export const handler: NodeHandler = async (ctx) => {
   };
 
   for (const msg of ctx.messages) {
+    // When a UI button targets a specific tts instance via
+    // `/node/:id/tts.speak`, the framework publishes the broadcast topic
+    // (`tts.speak`) with `metadata.target_node_id` set. Skip messages
+    // addressed to a sibling tts so two tts instances don't double-speak
+    // every time the user hits Speak in one panel. Untargeted publishes
+    // (LLM tool call, programmatic broadcast) reach every subscriber as
+    // before.
+    const target = (msg.metadata as Record<string, unknown> | undefined)?.target_node_id;
+    if (typeof target === "string" && target !== ctx.node.id) continue;
+
     if (msg.topic === "tts.voices.list") {
       const voices = await listVoices();
       ctx.publish("tts.voices", {
