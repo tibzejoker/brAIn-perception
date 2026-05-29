@@ -9,41 +9,69 @@
   ],
   "default_authority": 1,
   "default_priority": 5,
-  "default_subscriptions": [
-    {
-      "topic": "tts.speak",
-      "description": "Speak a piece of text aloud. Payload: TextPayload with `content`. Optional metadata: `voice` (string, picked from tts.voices.list), `rate` (number, words/min — backend-specific).",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "content": { "type": "string" }
-        },
-        "required": ["content"]
+  "ports": {
+    "inputs": {
+      "tts.speak": {
+        "description": "Speak a piece of text aloud. Payload: TextPayload with `content`. Optional metadata: `voice` (string, picked from tts.voices.list), `rate` (number, words/min — backend-specific).",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "content": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "content"
+          ]
+        }
+      },
+      "tts.voices.list": {
+        "description": "Request the list of available voices on this host. Reply is published on tts.voices.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        }
+      },
+      "tts.cancel": {
+        "description": "Stop the current utterance immediately.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        }
       }
     },
-    {
-      "topic": "tts.voices.list",
-      "description": "Request the list of available voices on this host. Reply is published on tts.voices.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {},
-        "additionalProperties": false
-      }
-    },
-    {
-      "topic": "tts.cancel",
-      "description": "Stop the current utterance immediately.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {},
-        "additionalProperties": false
+    "outputs": {
+      "tts.voices": {
+        "description": "tts.voices"
+      },
+      "tts.status": {
+        "description": "tts.status"
       }
     }
-  ],
-  "default_publishes": [
-    "tts.voices",
-    "tts.status"
-  ],
+  },
+  "default_port_bindings": {
+    "inputs": {
+      "tts.speak": [
+        "tts.speak"
+      ],
+      "tts.voices.list": [
+        "tts.voices.list"
+      ],
+      "tts.cancel": [
+        "tts.cancel"
+      ]
+    },
+    "outputs": {
+      "tts.voices": [
+        "tts.voices"
+      ],
+      "tts.status": [
+        "tts.status"
+      ]
+    }
+  },
   "has_ui": true,
   "supports_transport": [
     "process"

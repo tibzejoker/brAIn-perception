@@ -9,73 +9,119 @@
   ],
   "default_authority": 1,
   "default_priority": 5,
-  "default_subscriptions": [
-    {
-      "topic": "voice.control",
-      "description": "Voice node control commands (e.g. enable/disable VAD, switch model). Sender pushes JSON; the Python sidecar honours it.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "action": {
-            "type": "string",
-            "enum": ["start", "stop", "status"],
-            "description": "Control verb forwarded to the Python sidecar."
+  "ports": {
+    "inputs": {
+      "voice.control": {
+        "description": "Voice node control commands (e.g. enable/disable VAD, switch model). Sender pushes JSON; the Python sidecar honours it.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "start",
+                "stop",
+                "status"
+              ],
+              "description": "Control verb forwarded to the Python sidecar."
+            },
+            "session_id": {
+              "type": "string",
+              "description": "Optional session identifier; defaults to 'default' server-side."
+            }
           },
-          "session_id": {
-            "type": "string",
-            "description": "Optional session identifier; defaults to 'default' server-side."
-          }
-        },
-        "required": ["action"],
-        "additionalProperties": false
+          "required": [
+            "action"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "voice.speaker.rename": {
+        "description": "Rename a tracked speaker. Payload: {speaker_id, new_name}.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "speaker_id": {
+              "type": "string",
+              "description": "Diarization-assigned speaker ID to rename."
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "description": "New human-readable label for that speaker."
+            }
+          },
+          "required": [
+            "speaker_id",
+            "name"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "voice.speaker.merge": {
+        "description": "Merge two speaker IDs into one (manual disambiguation). Payload: {keep, drop}.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "keep": {
+              "type": "string",
+              "description": "Speaker ID to retain after the merge."
+            },
+            "drop": {
+              "type": "string",
+              "description": "Speaker ID to fold into 'keep'; subsequent events get re-attributed."
+            }
+          },
+          "required": [
+            "keep",
+            "drop"
+          ],
+          "additionalProperties": false
+        }
       }
     },
-    {
-      "topic": "voice.speaker.rename",
-      "description": "Rename a tracked speaker. Payload: {speaker_id, new_name}.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "speaker_id": {
-            "type": "string",
-            "description": "Diarization-assigned speaker ID to rename."
-          },
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "description": "New human-readable label for that speaker."
-          }
-        },
-        "required": ["speaker_id", "name"],
-        "additionalProperties": false
-      }
-    },
-    {
-      "topic": "voice.speaker.merge",
-      "description": "Merge two speaker IDs into one (manual disambiguation). Payload: {keep, drop}.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "keep": {
-            "type": "string",
-            "description": "Speaker ID to retain after the merge."
-          },
-          "drop": {
-            "type": "string",
-            "description": "Speaker ID to fold into 'keep'; subsequent events get re-attributed."
-          }
-        },
-        "required": ["keep", "drop"],
-        "additionalProperties": false
+    "outputs": {
+      "voice.transcript": {
+        "description": "voice.transcript"
+      },
+      "voice.speaker.detected": {
+        "description": "voice.speaker.detected"
+      },
+      "voice.speaker.identified": {
+        "description": "voice.speaker.identified"
+      },
+      "voice.status": {
+        "description": "voice.status"
       }
     }
-  ],
-  "default_publishes": [
-    "voice.transcript",
-    "voice.speaker.detected",
-    "voice.speaker.identified",
-    "voice.status"
-  ],
+  },
+  "default_port_bindings": {
+    "inputs": {
+      "voice.control": [
+        "voice.control"
+      ],
+      "voice.speaker.rename": [
+        "voice.speaker.rename"
+      ],
+      "voice.speaker.merge": [
+        "voice.speaker.merge"
+      ]
+    },
+    "outputs": {
+      "voice.transcript": [
+        "voice.transcript"
+      ],
+      "voice.speaker.detected": [
+        "voice.speaker.detected"
+      ],
+      "voice.speaker.identified": [
+        "voice.speaker.identified"
+      ],
+      "voice.status": [
+        "voice.status"
+      ]
+    }
+  },
   "has_ui": true,
   "supports_transport": [
     "process"

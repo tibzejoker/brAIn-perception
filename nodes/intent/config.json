@@ -9,94 +9,142 @@
   ],
   "default_authority": 1,
   "default_priority": 5,
-  "default_subscriptions": [
-    {
-      "topic": "voice.transcript",
-      "description": "Finalised voice utterances from the voice node — fed into the correlator.",
-      "internal": true
-    },
-    {
-      "topic": "gaze.target.resolved",
-      "description": "Resolved gaze targets from the gaze node — fed into the correlator.",
-      "internal": true
-    },
-    {
-      "topic": "intent.persons.create",
-      "description": "Manually create a person record (voice ↔ gaze ↔ name binding).",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string",
-            "description": "Display name for the person. Defaults to 'Unknown' if omitted."
+  "ports": {
+    "inputs": {
+      "voice.transcript": {
+        "description": "Finalised voice utterances from the voice node — fed into the correlator.",
+        "inputSchema": {
+          "type": "object"
+        }
+      },
+      "gaze.target.resolved": {
+        "description": "Resolved gaze targets from the gaze node — fed into the correlator.",
+        "inputSchema": {
+          "type": "object"
+        }
+      },
+      "intent.persons.create": {
+        "description": "Manually create a person record (voice ↔ gaze ↔ name binding).",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Display name for the person. Defaults to 'Unknown' if omitted."
+            },
+            "color": {
+              "type": "string",
+              "description": "Optional UI color (e.g. hex like '#ff8800') for rendering this person."
+            },
+            "voice_profile_id": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Voice profile id to bind to this person, or null if unbound."
+            },
+            "gaze_profile_id": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Gaze profile id to bind to this person, or null if unbound."
+            }
           },
-          "color": {
-            "type": "string",
-            "description": "Optional UI color (e.g. hex like '#ff8800') for rendering this person."
+          "additionalProperties": false
+        }
+      },
+      "intent.persons.update": {
+        "description": "Update an existing person record.",
+        "inputSchema": {
+          "type": "object",
+          "required": [
+            "id"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "Id of the person record to patch."
+            },
+            "name": {
+              "type": "string",
+              "description": "New display name."
+            },
+            "color": {
+              "type": "string",
+              "description": "New UI color."
+            },
+            "voice_profile_id": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "New voice profile id, or null to unbind."
+            },
+            "gaze_profile_id": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "New gaze profile id, or null to unbind."
+            }
           },
-          "voice_profile_id": {
-            "type": ["string", "null"],
-            "description": "Voice profile id to bind to this person, or null if unbound."
+          "additionalProperties": false
+        }
+      },
+      "intent.persons.delete": {
+        "description": "Delete a person record by id.",
+        "inputSchema": {
+          "type": "object",
+          "required": [
+            "id"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "Id of the person record to delete."
+            }
           },
-          "gaze_profile_id": {
-            "type": ["string", "null"],
-            "description": "Gaze profile id to bind to this person, or null if unbound."
-          }
-        },
-        "additionalProperties": false
+          "additionalProperties": false
+        }
       }
     },
-    {
-      "topic": "intent.persons.update",
-      "description": "Update an existing person record.",
-      "inputSchema": {
-        "type": "object",
-        "required": ["id"],
-        "properties": {
-          "id": {
-            "type": "string",
-            "description": "Id of the person record to patch."
-          },
-          "name": {
-            "type": "string",
-            "description": "New display name."
-          },
-          "color": {
-            "type": "string",
-            "description": "New UI color."
-          },
-          "voice_profile_id": {
-            "type": ["string", "null"],
-            "description": "New voice profile id, or null to unbind."
-          },
-          "gaze_profile_id": {
-            "type": ["string", "null"],
-            "description": "New gaze profile id, or null to unbind."
-          }
-        },
-        "additionalProperties": false
-      }
-    },
-    {
-      "topic": "intent.persons.delete",
-      "description": "Delete a person record by id.",
-      "inputSchema": {
-        "type": "object",
-        "required": ["id"],
-        "properties": {
-          "id": {
-            "type": "string",
-            "description": "Id of the person record to delete."
-          }
-        },
-        "additionalProperties": false
+    "outputs": {
+      "intent.detected": {
+        "description": "intent.detected"
+      },
+      "intent.persons.changed": {
+        "description": "intent.persons.changed"
       }
     }
-  ],
-  "default_publishes": [
-    "intent.detected",
-    "intent.persons.changed"
-  ],
+  },
+  "default_port_bindings": {
+    "inputs": {
+      "voice.transcript": [
+        "voice.transcript"
+      ],
+      "gaze.target.resolved": [
+        "gaze.target.resolved"
+      ],
+      "intent.persons.create": [
+        "intent.persons.create"
+      ],
+      "intent.persons.update": [
+        "intent.persons.update"
+      ],
+      "intent.persons.delete": [
+        "intent.persons.delete"
+      ]
+    },
+    "outputs": {
+      "intent.detected": [
+        "intent.detected"
+      ],
+      "intent.persons.changed": [
+        "intent.persons.changed"
+      ]
+    }
+  },
   "has_ui": true,
   "supports_transport": [
     "process"

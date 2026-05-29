@@ -9,82 +9,128 @@
   ],
   "default_authority": 1,
   "default_priority": 5,
-  "default_subscriptions": [
-    {
-      "topic": "gaze.control",
-      "description": "Gaze node control commands (toggle capture, switch model). Forwarded to the Python sidecar.",
-      "inputSchema": {
-        "type": "object",
-        "required": ["action"],
-        "additionalProperties": false,
-        "properties": {
-          "action": {
-            "type": "string",
-            "enum": ["start", "stop", "status"],
-            "description": "Capture lifecycle action to perform on the Python sidecar."
-          },
-          "device": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "Camera device index (only used when action='start'). Defaults to 0."
-          },
-          "fps": {
-            "type": "number",
-            "exclusiveMinimum": 0,
-            "description": "Target capture frame rate (only used when action='start'). Defaults to 6."
+  "ports": {
+    "inputs": {
+      "gaze.control": {
+        "description": "Gaze node control commands (toggle capture, switch model). Forwarded to the Python sidecar.",
+        "inputSchema": {
+          "type": "object",
+          "required": [
+            "action"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "start",
+                "stop",
+                "status"
+              ],
+              "description": "Capture lifecycle action to perform on the Python sidecar."
+            },
+            "device": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Camera device index (only used when action='start'). Defaults to 0."
+            },
+            "fps": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Target capture frame rate (only used when action='start'). Defaults to 6."
+            }
+          }
+        }
+      },
+      "gaze.face.rename": {
+        "description": "Rename a tracked face profile.",
+        "inputSchema": {
+          "type": "object",
+          "required": [
+            "profile_id",
+            "name"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "profile_id": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Stable profile identifier of the face to rename."
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "description": "New human-readable name for the profile."
+            }
+          }
+        }
+      },
+      "gaze.face.merge": {
+        "description": "Merge two face profile IDs into one.",
+        "inputSchema": {
+          "type": "object",
+          "required": [
+            "keep",
+            "drop"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "keep": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Profile ID to keep as the canonical identity."
+            },
+            "drop": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Profile ID to merge into 'keep' and then remove."
+            }
           }
         }
       }
     },
-    {
-      "topic": "gaze.face.rename",
-      "description": "Rename a tracked face profile.",
-      "inputSchema": {
-        "type": "object",
-        "required": ["profile_id", "name"],
-        "additionalProperties": false,
-        "properties": {
-          "profile_id": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Stable profile identifier of the face to rename."
-          },
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "description": "New human-readable name for the profile."
-          }
-        }
-      }
-    },
-    {
-      "topic": "gaze.face.merge",
-      "description": "Merge two face profile IDs into one.",
-      "inputSchema": {
-        "type": "object",
-        "required": ["keep", "drop"],
-        "additionalProperties": false,
-        "properties": {
-          "keep": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Profile ID to keep as the canonical identity."
-          },
-          "drop": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Profile ID to merge into 'keep' and then remove."
-          }
-        }
+    "outputs": {
+      "gaze.face.detected": {
+        "description": "gaze.face.detected"
+      },
+      "gaze.face.identified": {
+        "description": "gaze.face.identified"
+      },
+      "gaze.target.resolved": {
+        "description": "gaze.target.resolved"
+      },
+      "gaze.status": {
+        "description": "gaze.status"
       }
     }
-  ],
-  "default_publishes": [
-    "gaze.face.detected",
-    "gaze.face.identified",
-    "gaze.target.resolved",
-    "gaze.status"
-  ],
+  },
+  "default_port_bindings": {
+    "inputs": {
+      "gaze.control": [
+        "gaze.control"
+      ],
+      "gaze.face.rename": [
+        "gaze.face.rename"
+      ],
+      "gaze.face.merge": [
+        "gaze.face.merge"
+      ]
+    },
+    "outputs": {
+      "gaze.face.detected": [
+        "gaze.face.detected"
+      ],
+      "gaze.face.identified": [
+        "gaze.face.identified"
+      ],
+      "gaze.target.resolved": [
+        "gaze.target.resolved"
+      ],
+      "gaze.status": [
+        "gaze.status"
+      ]
+    }
+  },
   "has_ui": true,
   "supports_transport": [
     "process"
