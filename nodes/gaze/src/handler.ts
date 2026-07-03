@@ -18,7 +18,12 @@ let serverPromise: Promise<ChildServerHandle> | null = null;
 let nodeId: string | null = null;
 let pollerTimer: NodeJS.Timeout | null = null;
 let pollerCursor = 0;
-let pollerStop = false;
+// Generation token, not a boolean: kill+respawn interleaves (seed re-apply)
+// can reset a boolean stop-flag back to false while an old tick's fetch is
+// still in flight, resurrecting the old loop next to the new one — every
+// event then gets published twice. Each start bumps the epoch; a loop only
+// continues while the global epoch still matches the one it was born with.
+let pollerEpoch = 0;
 
 /**
  * First-spawn auto-install: if the Python venv doesn't exist yet,
@@ -80,9 +85,9 @@ interface GazeEventRow {
  * past the last seen id are forwarded.
  */
 function startEventPoller(): void {
-  if (pollerStop) return;
+  const epoch = ++pollerEpoch;
   const tick = async (): Promise<void> => {
-    if (isStopped()) return;
+    if (epoch !== pollerEpoch) return;
     const bus = BrainService.current?.bus;
     if (!bus || !nodeId) {
       pollerTimer = setTimeout(tick, POLL_INTERVAL_MS);
@@ -110,15 +115,13 @@ function startEventPoller(): void {
     } catch (err) {
       logger.debug({ err }, "gaze poller: tick failed (will retry)");
     }
-    if (!isStopped()) pollerTimer = setTimeout(tick, POLL_INTERVAL_MS);
+    if (epoch === pollerEpoch) pollerTimer = setTimeout(tick, POLL_INTERVAL_MS);
   };
   void tick();
 }
 
-function isStopped(): boolean { return pollerStop; }
-
 type GazeControl =
-  | { action: "start"; device?: number; fps?: number }
+  | { action: "start"; device?: number; fps?: number; file?: string; loop?: boolean }
   | { action: "stop" }
   | { action: "status" };
 
@@ -126,7 +129,6 @@ type FaceRename = { profile_id: string; name: string };
 
 export const onSpawn: NodeOnSpawn = async (info: NodeInfo) => {
   nodeId = info.id;
-  pollerStop = false;
   pollerCursor = 0;
   await ensureServer();
   startEventPoller();
@@ -145,7 +147,12 @@ export const handler: NodeHandler = async (ctx) => {
         const res = await fetch(`${SERVER_URL}/api/capture/start`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ device: ctrl.device ?? 0, fps: ctrl.fps ?? 6 }),
+          body: JSON.stringify({
+            device: ctrl.device ?? 0,
+            fps: ctrl.fps ?? 6,
+            file: ctrl.file ?? null,
+            loop: ctrl.loop ?? false,
+          }),
         });
         const body = (await res.json()) as Record<string, unknown>;
         ctx.publish("gaze.status", {
@@ -185,7 +192,7 @@ export const handler: NodeHandler = async (ctx) => {
 };
 
 export const teardown: NodeTeardown = async () => {
-  pollerStop = true;
+  pollerEpoch++;
   if (pollerTimer) {
     clearTimeout(pollerTimer);
     pollerTimer = null;

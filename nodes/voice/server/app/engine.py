@@ -192,7 +192,10 @@ class VadSttEngine(Engine):
         self._session_id: str | None = None
 
         models = settings.models_dir
-        self._vad = SileroVad(model_path=models / "silero_vad.onnx")
+        self._vad = SileroVad(
+            model_path=models / "silero_vad.onnx",
+            min_silence_ms=settings.vad_min_silence_ms,
+        )
         self._stt = build_stt(
             backend=settings.stt_backend,
             model_size=settings.stt_model,

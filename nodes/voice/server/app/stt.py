@@ -96,7 +96,7 @@ def _setup_cuda_dlls() -> None:
     nvidia_root = os.path.join(site_packages, "nvidia")
     if not os.path.isdir(nvidia_root):
         return
-    for sub in ("cudnn", "cublas"):
+    for sub in ("cudnn", "cublas", "cuda_nvrtc"):
         bin_dir = os.path.join(nvidia_root, sub, "bin")
         lib_dir = os.path.join(nvidia_root, sub, "lib")
         if sys.platform == "win32" and os.path.isdir(bin_dir):
@@ -104,6 +104,13 @@ def _setup_cuda_dlls() -> None:
                 os.add_dll_directory(bin_dir)
             except (AttributeError, OSError):
                 pass
+            # add_dll_directory only covers LOAD_LIBRARY_SEARCH_* loads;
+            # ctranslate2 resolves cublas64_12.dll with a plain
+            # LoadLibrary, which walks PATH — prepend so the pip-shipped
+            # DLLs are found ("Library cublas64_12.dll is not found").
+            existing = os.environ.get("PATH", "")
+            if bin_dir not in existing.split(os.pathsep):
+                os.environ["PATH"] = f"{bin_dir}{os.pathsep}{existing}" if existing else bin_dir
         elif sys.platform.startswith("linux") and os.path.isdir(lib_dir):
             existing = os.environ.get("LD_LIBRARY_PATH", "")
             if lib_dir not in existing.split(os.pathsep):

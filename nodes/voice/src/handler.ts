@@ -18,7 +18,12 @@ const PYTHON_BIN = process.env.VOICE_PYTHON ?? VENV_PYTHON;
 let serverPromise: Promise<ChildServerHandle> | null = null;
 let nodeId: string | null = null;
 let bridgeWs: WebSocket | null = null;
-let bridgeStop = false;
+// Generation token, not a boolean: kill+respawn interleaves (seed re-apply)
+// can reset a boolean stop-flag while the old bridge socket is still open,
+// leaving two live bridges that each republish every event — transcripts
+// then arrive twice on the bus. A loop/socket only lives while the global
+// epoch matches the one it was created under.
+let bridgeEpoch = 0;
 
 /**
  * First-spawn auto-install: if the Python venv doesn't exist yet, run
@@ -75,14 +80,14 @@ function ensureServer(): Promise<ChildServerHandle> {
  * - Each SpeakerNewEvent → `voice.speaker.detected`.
  *
  * Runs as a long-lived background loop with reconnect backoff. Stops when
- * `bridgeStop` is flipped at teardown.
+ * the bridge epoch moves on (teardown or a newer spawn superseding it).
  */
 function startEventBridge(): void {
-  if (bridgeStop) return;
+  const epoch = ++bridgeEpoch;
   let backoffMs = 500;
 
   const connect = (): void => {
-    if (bridgeStop) return;
+    if (epoch !== bridgeEpoch) return;
     const bus = BrainService.current?.bus;
     const id = nodeId;
     if (!bus || !id) {
@@ -98,6 +103,7 @@ function startEventBridge(): void {
       logger.info({ url: WS_URL }, "voice bridge: connected");
     });
     ws.on("message", (raw: WebSocket.RawData) => {
+      if (epoch !== bridgeEpoch) return; // superseded bridge — drop, don't republish
       try {
         const event = JSON.parse(raw.toString("utf8")) as Record<string, unknown>;
         const type = event.type;
@@ -128,7 +134,7 @@ function startEventBridge(): void {
     });
     ws.on("close", () => {
       bridgeWs = null;
-      if (bridgeStop) return;
+      if (epoch !== bridgeEpoch) return;
       setTimeout(connect, backoffMs);
       backoffMs = Math.min(backoffMs * 2, 15_000);
     });
@@ -140,7 +146,7 @@ function startEventBridge(): void {
 }
 
 type VoiceControl =
-  | { action: "start"; session_id?: string }
+  | { action: "start"; session_id?: string; file?: string }
   | { action: "stop"; session_id?: string }
   | { action: "status" };
 
@@ -148,7 +154,6 @@ type SpeakerRename = { speaker_id: string; name: string };
 
 export const onSpawn: NodeOnSpawn = async (info: NodeInfo) => {
   nodeId = info.id;
-  bridgeStop = false;
   await ensureServer();
   startEventBridge();
 };
@@ -164,10 +169,15 @@ export const handler: NodeHandler = async (ctx) => {
 
     if (topic === "voice.control") {
       const ctrl = msg.payload as unknown as VoiceControl;
-      const res = await fetch(`${SERVER_URL}/api/control`, {
+      // A start carrying a file path drives media-file capture (demo/replay)
+      // instead of a plain listening session.
+      const fileStart = ctrl.action === "start" && typeof ctrl.file === "string" && ctrl.file.length > 0;
+      const res = await fetch(`${SERVER_URL}/api/${fileStart ? "capture/start" : "control"}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(ctrl),
+        body: JSON.stringify(
+          fileStart ? { file: ctrl.file, session_id: ctrl.session_id ?? "default" } : ctrl,
+        ),
       });
       const body = (await res.json()) as Record<string, unknown>;
       ctx.publish("voice.status", {
@@ -192,7 +202,7 @@ export const handler: NodeHandler = async (ctx) => {
 };
 
 export const teardown: NodeTeardown = async () => {
-  bridgeStop = true;
+  bridgeEpoch++;
   if (bridgeWs) {
     try { bridgeWs.close(); } catch { /* ignore */ }
     bridgeWs = null;

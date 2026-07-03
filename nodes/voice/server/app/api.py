@@ -79,6 +79,15 @@ def build_router(store: ProfileStore, hub: SessionHub, capture: LocalCapture) ->
     def delete_voiceprint(voiceprint_id: str) -> dict[str, bool]:
         return {"deleted": store.delete_voiceprint(voiceprint_id)}
 
+    @router.post("/warmup")
+    def warmup() -> dict[str, bool]:
+        """Load STT/diarization models without opening a capture session.
+        Sync (threadpool) on purpose: the caller awaits readiness so a
+        subsequent /capture/start streams immediately — needed when video
+        playback must start in sync with another server (gaze)."""
+        hub.warmup()
+        return {"ready": True}
+
     @router.post("/control")
     async def control(body: ControlIn) -> dict[str, str]:
         if body.action == "start":
@@ -144,7 +153,9 @@ def build_router(store: ProfileStore, hub: SessionHub, capture: LocalCapture) ->
     @router.post("/capture/start")
     async def capture_start(body: CaptureStartIn) -> dict:
         try:
-            return await capture.start(body.device, body.session_id or "default")
+            return await capture.start(
+                body.device, body.session_id or "default", file=body.file,
+            )
         except CaptureError as e:
             raise HTTPException(503, str(e)) from e
 

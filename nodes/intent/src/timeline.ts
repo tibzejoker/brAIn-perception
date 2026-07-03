@@ -15,6 +15,10 @@ export interface VoiceSegment {
   provisional: boolean;
   person_id: string | null;
   ts_end: number | null; // wall-clock when audio ended (from voice engine)
+  /** Set once the correlator consumed this segment — correlation can be
+   *  reached from three paths (deferred arrival timer, person retro-link,
+   *  late re-check) and must fire exactly once. */
+  correlated: boolean;
 }
 
 export interface GazeEvent {
@@ -106,5 +110,40 @@ export class Timeline {
     const cutoff = now - RETENTION_S;
     while (this.voice.length && this.voice[0].ts < cutoff) this.voice.shift();
     while (this.gaze.length && this.gaze[0].ts < cutoff) this.gaze.shift();
+  }
+
+  /**
+   * Retro-link buffered events to a person that was just created/updated.
+   *
+   * Voice profiles only exist after their first finalized segment and
+   * humans link persons even later, so the segments and gaze events of
+   * the last few seconds routinely predate the person row. Without this,
+   * an utterance that arrived a moment before the link is silently lost
+   * to the correlator.
+   *
+   * Mutates matching gaze events' person ids in place and returns the
+   * voice segments (person_id stamped) that are now correlatable —
+   * finalized, previously unlinked, matching the person's voice profile.
+   */
+  relink(person: { id: string; voice_profile_id: string | null; gaze_profile_id: string | null }): VoiceSegment[] {
+    if (person.gaze_profile_id) {
+      for (const g of this.gaze) {
+        if (g.source_person_id === null && g.source_gaze_profile_id === person.gaze_profile_id) {
+          g.source_person_id = person.id;
+        }
+        if (g.target_person_id === null && g.target_gaze_profile_id === person.gaze_profile_id) {
+          g.target_person_id = person.id;
+        }
+      }
+    }
+    if (!person.voice_profile_id) return [];
+    const out: VoiceSegment[] = [];
+    for (const v of this.voice) {
+      if (v.person_id !== null || v.provisional || v.correlated) continue;
+      if (v.voice_profile_id !== person.voice_profile_id) continue;
+      v.person_id = person.id;
+      out.push(v);
+    }
+    return out;
   }
 }

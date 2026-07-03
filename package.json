@@ -9,7 +9,9 @@
     "setup:voice": "node scripts/setup-py.mjs voice",
     "setup:gaze": "node scripts/setup-py.mjs gaze",
     "dev:voice:server": "cd nodes/voice/server && VOICE_ENGINE=real .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload",
-    "dev:gaze:server": "cd nodes/gaze/server && .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8766 --reload"
+    "dev:gaze:server": "cd nodes/gaze/server && .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8766 --reload",
+    "demo:video": "node scripts/demo-video.mjs",
+    "demo:record": "node scripts/record-demo.mjs"
   },
   "devDependencies": {
     "typescript": "^5.4.0"

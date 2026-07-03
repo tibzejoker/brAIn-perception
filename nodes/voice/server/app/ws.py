@@ -51,6 +51,14 @@ class SessionHub:
     def identity(self) -> IdentityResolver:
         return self._identity
 
+    def warmup(self) -> None:
+        """Build the engine (and load its models) without starting a
+        session. Controllers that must start several sources in sync call
+        this first so start_session is instant."""
+        if self._engine is None:
+            log.info("warmup — loading engine + models")
+            self._engine = self._engine_factory()
+
     async def start_session(self, session_id: str) -> None:
         if self._active_session == session_id:
             return

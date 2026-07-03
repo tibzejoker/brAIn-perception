@@ -14,6 +14,14 @@ export interface CorrelatorConfig {
   post_s: number;
   state_freshness_s: number; // age past which a state is considered stale
   state_lag_s: number;       // detection-pipeline delay shift
+  /** Camera-gaze share of the speech window past which the utterance
+   *  counts as addressed to the AI even when another target won the
+   *  dominant-overlap vote. Relative, not absolute: near-frontal footage
+   *  produces brief spurious camera reads on every utterance, so a fixed
+   *  seconds threshold over-triggers on long sentences — but a speaker
+   *  who spends a large share of a sentence on the camera means it even
+   *  if a stale person-target interval outweighs it. */
+  camera_min_fraction: number;
 }
 
 export const DEFAULT_CORRELATOR_CONFIG: CorrelatorConfig = {
@@ -21,7 +29,16 @@ export const DEFAULT_CORRELATOR_CONFIG: CorrelatorConfig = {
   post_s: 0.5,
   state_freshness_s: 2.0,
   state_lag_s: 1.0,
+  camera_min_fraction: 0.4,
 };
+
+/** Per-intent correlation facts the broadcast consumer needs beyond the
+ *  stored record — currently whether the speaker addressed the AI. */
+export interface IntentDispatch {
+  addressed: boolean;
+  camera_overlap_s: number;
+  camera_fraction: number;
+}
 
 type Key = string; // "person:<id>" | "face:<id>" | "camera" | "scene"
 
@@ -30,7 +47,7 @@ export class IntentCorrelator {
     private readonly store: IntentStore,
     private readonly timeline: Timeline,
     private readonly cfg: CorrelatorConfig,
-    private readonly broadcast: (intent: IntentRecord) => void,
+    private readonly broadcast: (intent: IntentRecord, dispatch: IntentDispatch) => void,
   ) {}
 
   onSegment(seg: VoiceSegment): void {
@@ -115,7 +132,13 @@ export class IntentCorrelator {
       confidence,
     });
 
-    this.broadcast(intent);
+    const cameraOverlapS = overlap.get("camera") ?? 0;
+    const cameraFraction = cameraOverlapS / segSpan;
+    this.broadcast(intent, {
+      addressed: targetKind === "camera" || cameraFraction >= this.cfg.camera_min_fraction,
+      camera_overlap_s: cameraOverlapS,
+      camera_fraction: cameraFraction,
+    });
   }
 }
 

@@ -28,7 +28,6 @@ if (!existsSync(serverDir)) {
 const isWin = process.platform === "win32";
 const venv = join(serverDir, ".venv");
 const pyBin = isWin ? join(venv, "Scripts", "python.exe") : join(venv, "bin", "python");
-const pipBin = isWin ? join(venv, "Scripts", "pip.exe") : join(venv, "bin", "pip");
 
 function run(cmd, args, opts = {}) {
   console.log(`$ ${cmd} ${args.join(" ")}`);
@@ -36,13 +35,23 @@ function run(cmd, args, opts = {}) {
   if (r.status !== 0) process.exit(r.status ?? 1);
 }
 
+// Prefer 3.11 (upstream default) but fall back to 3.12 when the launcher
+// doesn't have 3.11 — every dependency ships 3.12 wheels. PYTHON env
+// overrides both.
+function windowsVenvArgs() {
+  const probe = spawnSync("py", ["-3.11", "-c", "1"], { stdio: "ignore" });
+  return probe.status === 0 ? ["-3.11", "-m", "venv", ".venv"] : ["-3.12", "-m", "venv", ".venv"];
+}
+
 const pythonCmd = process.env.PYTHON ?? (isWin ? "py" : "python3.11");
-const pythonArgs = isWin && pythonCmd === "py" ? ["-3.11", "-m", "venv", ".venv"] : ["-m", "venv", ".venv"];
+const pythonArgs = isWin && pythonCmd === "py" ? windowsVenvArgs() : ["-m", "venv", ".venv"];
 
 if (!existsSync(venv)) {
   run(pythonCmd, pythonArgs);
 }
-run(pipBin, ["install", "-U", "pip"]);
-run(pipBin, ["install", "-r", "requirements.txt"]);
+// `python -m pip` (not pip.exe) — on Windows pip refuses to overwrite its
+// own running executable, so pip.exe install -U pip always fails there.
+run(pyBin, ["-m", "pip", "install", "-U", "pip"]);
+run(pyBin, ["-m", "pip", "install", "-r", "requirements.txt"]);
 run(pyBin, ["-m", "app.setup_models"]);
 console.log(`✓ ${node} python env ready at ${venv}`);

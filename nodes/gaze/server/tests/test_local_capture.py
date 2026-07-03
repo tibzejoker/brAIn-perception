@@ -21,25 +21,35 @@ _fake_cv2 = types.ModuleType("cv2")
 
 class _FakeCap:
     instances: list = []
+    file_frame_limit = 5  # frames served in file mode before EOF
 
-    def __init__(self, idx: int) -> None:
-        self.idx = idx
-        self._opened = idx >= 0
+    def __init__(self, src) -> None:
+        self.src = src
+        self.is_file = isinstance(src, str)
+        self._opened = True if self.is_file else src >= 0
         self._frame_count = 0
         _FakeCap.instances.append(self)
 
     def isOpened(self) -> bool:
         return self._opened
 
-    def set(self, *_args) -> bool:
+    def set(self, prop, value=0) -> bool:
+        if prop == _fake_cv2.CAP_PROP_POS_FRAMES:
+            self._frame_count = int(value)
         return True
 
-    def get(self, _prop) -> float:
-        return 640.0 if _prop == _fake_cv2.CAP_PROP_FRAME_WIDTH else 480.0
+    def get(self, prop) -> float:
+        if prop == _fake_cv2.CAP_PROP_FPS:
+            return 25.0 if self.is_file else 0.0
+        if prop == _fake_cv2.CAP_PROP_POS_MSEC:
+            return self._frame_count * 40.0
+        return 640.0 if prop == _fake_cv2.CAP_PROP_FRAME_WIDTH else 480.0
 
     def read(self):
         if not self._opened:
             return False, None
+        if self.is_file and self._frame_count >= self.file_frame_limit:
+            return False, None  # EOF
         self._frame_count += 1
         # Return a dummy 480x640x3 BGR uint8 frame.
         frame = np.zeros((480, 640, 3), dtype=np.uint8)
@@ -53,6 +63,9 @@ _fake_cv2.VideoCapture = _FakeCap  # type: ignore[attr-defined]
 _fake_cv2.CAP_PROP_BUFFERSIZE = 38
 _fake_cv2.CAP_PROP_FRAME_WIDTH = 3
 _fake_cv2.CAP_PROP_FRAME_HEIGHT = 4
+_fake_cv2.CAP_PROP_POS_MSEC = 0
+_fake_cv2.CAP_PROP_POS_FRAMES = 1
+_fake_cv2.CAP_PROP_FPS = 5
 _fake_cv2.IMWRITE_JPEG_QUALITY = 1
 _fake_cv2.FONT_HERSHEY_SIMPLEX = 0
 _fake_cv2.LINE_AA = 16
@@ -159,6 +172,74 @@ class LocalCaptureLifecycleTests(unittest.TestCase):
         self.assertFalse(self.cap.is_running)
         # The fake VideoCapture flips `_opened` to False on release().
         self.assertTrue(all(not c._opened for c in _FakeCap.instances))
+
+
+class FileCaptureTests(unittest.TestCase):
+    """Video-file source: plays paced to the file's timestamps, holds the
+    last frame at EOF (or rewinds in loop mode)."""
+
+    def setUp(self) -> None:
+        _FakeCap.instances.clear()
+        self.engine = _make_engine()
+        self.cap = LocalCapture(self.engine)
+        # A real file on disk — start() validates existence before cv2.
+        import tempfile
+        self._tmp = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
+        self._tmp.write(b"stub")
+        self._tmp.close()
+
+    def tearDown(self) -> None:
+        if self.cap.is_running:
+            self.cap.stop()
+        import os
+        os.unlink(self._tmp.name)
+
+    def _wait(self, predicate, timeout=3.0) -> bool:
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if predicate():
+                return True
+            time.sleep(0.02)
+        return False
+
+    def test_missing_file_raises(self) -> None:
+        with self.assertRaises(CaptureError):
+            self.cap.start(file=self._tmp.name + ".nope")
+        self.assertFalse(self.cap.is_running)
+
+    def test_plays_to_eof_and_holds_last_frame(self) -> None:
+        s = self.cap.start(file=self._tmp.name, fps=30.0)
+        self.assertEqual(s["source"], "file")
+        self.assertEqual(s["file"], self._tmp.name)
+        # 5 fake frames at 25 fps ≈ 200 ms of playback.
+        self.assertTrue(self._wait(lambda: self.cap.status()["ended"]),
+                        "capture must flag `ended` at EOF")
+        # EOF must NOT tear down the capture: preview holds the last frame.
+        self.assertTrue(self.cap.is_running)
+        self.assertIsNotNone(self.cap.latest_preview())
+        self.assertGreaterEqual(self.engine.analyze.call_count, 1)
+        s = self.cap.stop()
+        self.assertFalse(s["running"])
+        self.assertFalse(s["ended"])
+        self.assertEqual(s["source"], "device")
+
+    def test_loop_mode_rewinds_instead_of_ending(self) -> None:
+        self.cap.start(file=self._tmp.name, fps=30.0, loop=True)
+        fake = _FakeCap.instances[-1]
+        # Wait long enough for >1 full pass (5 frames × 40 ms = 200 ms/pass):
+        # the frame counter resetting below 5 proves a rewind happened.
+        self.assertTrue(
+            self._wait(lambda: self.engine.analyze.call_count >= 3, timeout=3.0),
+        )
+        self.assertFalse(self.cap.status()["ended"])
+        self.assertTrue(fake._frame_count <= fake.file_frame_limit)
+
+    def test_device_status_reports_device_source(self) -> None:
+        self.cap.start(device=0, fps=30.0)
+        s = self.cap.status()
+        self.assertEqual(s["source"], "device")
+        self.assertIsNone(s["file"])
+        self.assertFalse(s["ended"])
 
 
 class DeviceListingTests(unittest.TestCase):

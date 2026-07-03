@@ -26,3 +26,7 @@ nodes/*/tests/fixtures/
 .DS_Store
 .idea/
 .vscode/
+
+# demo recorder artifacts
+scripts/rec/
+scripts/demo-scene.live.html

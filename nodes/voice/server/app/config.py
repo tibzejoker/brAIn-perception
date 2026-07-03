@@ -41,6 +41,14 @@ class Settings(BaseSettings):
     # to capture short utterances ("ok", "merci") at the cost of less reliable
     # speaker assignment for those — the embedder pads to 1 s internally.
     min_segment_ms: int = 300
+    # Silence (ms) the VAD needs before it closes a speech segment. The
+    # segment is the diarization unit: anything above the effective gap
+    # between two speakers' turns glues both voices into ONE segment,
+    # blends their embeddings, and enrolls a hybrid speaker profile that
+    # then matches everybody. Note Silero's speech probability decays
+    # slowly, so the usable gap it sees is well under the acoustic
+    # silence — a ~350 ms real pause needs a threshold this low.
+    vad_min_silence_ms: int = 150
 
 
 settings = Settings()

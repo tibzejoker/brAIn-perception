@@ -1,9 +1,10 @@
-"""Local webcam capture.
+"""Local webcam or video-file capture.
 
-Bypasses the browser/POST `/api/detect/base64` path: opens a webcam directly
-via OpenCV, runs the engine on every grabbed frame, and stores the latest
-result so UI clients can poll it. Lets the brAIn UI (or any controller)
-drive the gaze pipeline without a browser webcam stream.
+Bypasses the browser/POST `/api/detect/base64` path: opens a webcam (or a
+video file — demo/replay mode) directly via OpenCV, runs the engine on every
+grabbed frame, and stores the latest result so UI clients can poll it. Lets
+the brAIn UI (or any controller) drive the gaze pipeline without a browser
+webcam stream.
 
 cv2.VideoCapture is blocking, so the grab loop runs in a daemon thread —
 not asyncio. We hold the most recent annotated JPEG + DetectResponse
@@ -13,8 +14,10 @@ from __future__ import annotations
 
 import io
 import logging
+import os
 import threading
 import time
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -51,6 +54,9 @@ class LocalCapture:
         self._analysis_thread: threading.Thread | None = None
         self._cap = None  # cv2.VideoCapture | None — typed loosely to keep the import lazy
         self._device: int | None = None
+        self._file: str | None = None
+        self._loop_file = False
+        self._ended = False
         self._fps_target = DEFAULT_FPS
 
         # Two JPEG slots:
@@ -65,7 +71,9 @@ class LocalCapture:
 
         # Single-slot pending frame for the analysis worker. New captures
         # overwrite older ones — we only ever care about the latest.
-        self._pending_frame = None  # (frame_bgr, jpeg_bytes) | None
+        # Carries the capture wall-clock so events are stamped with when
+        # the frame was grabbed, not when analysis got around to it.
+        self._pending_frame = None  # (frame_bgr, jpeg_bytes, captured_at_iso) | None
         self._pending_event = threading.Event()
 
         self._frames_processed = 0
@@ -83,6 +91,10 @@ class LocalCapture:
         return {
             "running": self.is_running,
             "device": self._device,
+            "source": "file" if self._file else "device",
+            "file": self._file,
+            "loop": self._loop_file,
+            "ended": self._ended,
             "fps_target": self._fps_target,
             "frames_processed": self._frames_processed,
             "frames_dropped": self._frames_dropped,
@@ -94,7 +106,14 @@ class LocalCapture:
         log.info("describe %s", "enabled" if self._describe else "disabled")
         return self.status()
 
-    def start(self, device: int = 0, fps: float = DEFAULT_FPS, describe: bool = False) -> dict:
+    def start(
+        self,
+        device: int = 0,
+        fps: float = DEFAULT_FPS,
+        describe: bool = False,
+        file: str | None = None,
+        loop: bool = False,
+    ) -> dict:
         if self.is_running:
             # Late-flip the describe toggle so a re-start with a different
             # value still takes effect on subsequent frames.
@@ -106,16 +125,28 @@ class LocalCapture:
         except ImportError as e:
             raise CaptureError("opencv-python is not installed") from e
 
-        cap = cv2.VideoCapture(device)
-        if not cap.isOpened():
-            cap.release()
-            raise CaptureError(f"failed to open webcam at index {device}")
-
-        # Reasonable defaults; the camera may ignore them and pick its own.
-        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        if file:
+            # Video-file mode (demo/replay): the file plays paced to its
+            # native timestamps, exactly as if it were a live camera.
+            if not os.path.isfile(file):
+                raise CaptureError(f"video file not found: {file}")
+            cap = cv2.VideoCapture(file)
+            if not cap.isOpened():
+                cap.release()
+                raise CaptureError(f"failed to open video file: {file}")
+        else:
+            cap = cv2.VideoCapture(device)
+            if not cap.isOpened():
+                cap.release()
+                raise CaptureError(f"failed to open webcam at index {device}")
+            # Reasonable defaults; the camera may ignore them and pick its own.
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
         self._cap = cap
-        self._device = device
+        self._device = None if file else device
+        self._file = file or None
+        self._loop_file = bool(loop)
+        self._ended = False
         self._fps_target = max(0.5, min(30.0, float(fps)))
         self._describe = bool(describe)
         self._stop.clear()
@@ -130,15 +161,16 @@ class LocalCapture:
         self._latest_response = None
 
         self._capture_thread = threading.Thread(
-            target=self._capture_loop, name="gaze-capture", daemon=True,
+            target=self._file_capture_loop if self._file else self._capture_loop,
+            name="gaze-capture", daemon=True,
         )
         self._analysis_thread = threading.Thread(
             target=self._analysis_loop, name="gaze-analysis", daemon=True,
         )
         self._capture_thread.start()
         self._analysis_thread.start()
-        log.info("local capture started (device=%d, fps=%.1f, describe=%s)",
-                 device, self._fps_target, self._describe)
+        log.info("local capture started (source=%s, fps=%.1f, describe=%s)",
+                 self._file or f"cam {device}", self._fps_target, self._describe)
         return self.status()
 
     def stop(self) -> dict:
@@ -156,6 +188,9 @@ class LocalCapture:
             try: cap.release()
             except Exception: log.exception("error releasing capture")
         self._device = None
+        self._file = None
+        self._loop_file = False
+        self._ended = False
         log.info("local capture stopped (processed=%d, dropped=%d)",
                  self._frames_processed, self._frames_dropped)
         return self.status()
@@ -200,27 +235,94 @@ class LocalCapture:
                 if self._stop.wait(0.1): break
                 continue
 
-            ok_enc, jpeg = cv2.imencode(
-                ".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), DEFAULT_JPEG_QUALITY],
-            )
-            if not ok_enc:
-                self._frames_dropped += 1
+            if not self._publish_frame(cv2, frame, handoff=True):
                 continue
-            jpeg_bytes = jpeg.tobytes()
-
-            with self._lock:
-                self._latest_raw_jpeg = jpeg_bytes
-                self._raw_ts = time.monotonic()
-                # Single-slot pending: if the analyzer hasn't picked up the
-                # previous frame yet, overwrite — we always want the most
-                # recent frame to be analyzed, not a stale one.
-                self._pending_frame = (frame.copy(), jpeg_bytes)
-            self._pending_event.set()
 
             elapsed = time.monotonic() - t0
             sleep = period - elapsed
             if sleep > 0 and self._stop.wait(sleep):
                 break
+
+    def _publish_frame(self, cv2, frame, handoff: bool) -> bool:  # noqa: ANN001
+        """Encode a BGR frame, store it as the latest raw JPEG, and (when
+        `handoff` is set) hand it to the analysis worker. Returns False when
+        JPEG encoding fails (counted as a drop)."""
+        captured_at = datetime.now(timezone.utc).isoformat()
+        ok_enc, jpeg = cv2.imencode(
+            ".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), DEFAULT_JPEG_QUALITY],
+        )
+        if not ok_enc:
+            self._frames_dropped += 1
+            return False
+        jpeg_bytes = jpeg.tobytes()
+
+        with self._lock:
+            self._latest_raw_jpeg = jpeg_bytes
+            self._raw_ts = time.monotonic()
+            if handoff:
+                # Single-slot pending: if the analyzer hasn't picked up the
+                # previous frame yet, overwrite — we always want the most
+                # recent frame to be analyzed, not a stale one.
+                self._pending_frame = (frame.copy(), jpeg_bytes, captured_at)
+        if handoff:
+            self._pending_event.set()
+        return True
+
+    def _file_capture_loop(self) -> None:
+        """Video-file variant of the capture loop.
+
+        Frames are paced to the file's own timestamps so the pipeline sees
+        the exact real-time cadence a camera would produce. The raw preview
+        updates at the file's native FPS; analysis handoff is throttled to
+        fps_target like the device path. At EOF the loop either rewinds
+        (loop mode) or holds the last frame on screen until stop() — the
+        preview keeps serving the final frame instead of going blank.
+        """
+        try:
+            import cv2
+        except ImportError:
+            log.exception("opencv unavailable mid-loop — bailing")
+            return
+
+        cap = self._cap
+        if cap is None:
+            return
+        native_fps = float(cap.get(cv2.CAP_PROP_FPS) or 0)
+        frame_period = 1.0 / native_fps if native_fps > 0 else 1.0 / 25.0
+        handoff_period = 1.0 / self._fps_target
+        t0 = time.monotonic()
+        last_handoff = 0.0
+        frame_idx = 0
+
+        while not self._stop.is_set():
+            cap = self._cap
+            if cap is None:
+                break
+            ok, frame = cap.read()
+            if not ok or frame is None:
+                if self._loop_file:
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    t0 = time.monotonic()
+                    frame_idx = 0
+                    continue
+                self._ended = True
+                log.info("video file ended after %d frames — holding last frame", frame_idx)
+                self._stop.wait()
+                break
+            frame_idx += 1
+
+            # Pace to the container's timestamps; fall back to frame index
+            # when the demuxer doesn't report POS_MSEC.
+            pos_ms = float(cap.get(cv2.CAP_PROP_POS_MSEC) or 0)
+            offset_s = pos_ms / 1000.0 if pos_ms > 0 else frame_idx * frame_period
+            delay = t0 + offset_s - time.monotonic()
+            if delay > 0 and self._stop.wait(delay):
+                break
+
+            now = time.monotonic()
+            handoff = (now - last_handoff) >= handoff_period
+            if self._publish_frame(cv2, frame, handoff=handoff) and handoff:
+                last_handoff = now
 
     def _analysis_loop(self) -> None:
         """Slow loop: take latest pending frame, run engine + draw, store annotated."""
@@ -243,11 +345,12 @@ class LocalCapture:
                 self._pending_frame = None
             if pending is None:
                 continue
-            frame, jpeg_bytes = pending
+            frame, jpeg_bytes, captured_at = pending
 
             try:
                 response = self._engine.analyze(
                     jpeg_bytes, remember=True, describe=self._describe,
+                    captured_at=captured_at,
                 )
                 annotated = _draw_overlays(cv2, frame, response)
                 ok_ann, ann_jpeg = cv2.imencode(

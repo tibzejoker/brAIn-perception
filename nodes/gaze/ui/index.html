@@ -184,6 +184,8 @@
   <div class="controls">
     <label for="device">Cam</label>
     <select id="device" disabled><option>loading…</option></select>
+    <label for="file" title="Absolute path of a video file to play as if it were the camera (demo/replay). Leave empty to use the camera.">🎬</label>
+    <input id="file" type="text" placeholder="video file path (optional)" style="width:210px" />
     <label for="fps">FPS</label>
     <input id="fps" type="number" min="1" max="30" step="1" value="6" style="width: 60px" />
     <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer" title="Run Moondream on each frame to label each face's gaze target. Heavy: ~500-1500 ms/face.">
@@ -241,6 +243,7 @@
 
     const els = {
       device: document.getElementById("device"),
+      file: document.getElementById("file"),
       fps: document.getElementById("fps"),
       describe: document.getElementById("describe"),
       start: document.getElementById("start"),
@@ -281,7 +284,8 @@
         const devs = await res.json();
         if (devs.length === 0) {
           els.device.innerHTML = `<option value="">no cameras detected</option>`;
-          setStatus("error", "no cameras");
+          setStatus("error", "no cameras — video file still works");
+          els.start.disabled = false; // file mode needs no camera
           return;
         }
         els.device.innerHTML = devs.map((d) =>
@@ -306,7 +310,10 @@
           els.describe.checked = s.describe;
         }
         if (s.running) {
-          setStatus("listening", `running — cam ${s.device}${s.describe ? " · describe ON" : ""}`);
+          const src = s.source === "file"
+            ? `video ${String(s.file || "").split(/[\\/]/).pop()}${s.ended ? " · ended (last frame)" : ""}`
+            : `cam ${s.device}`;
+          setStatus("listening", `running — ${src}${s.describe ? " · describe ON" : ""}`);
           els.start.disabled = true; els.stop.disabled = false;
           els.meta.textContent = `${s.frames_processed} processed${s.frames_dropped ? ` · ${s.frames_dropped} dropped` : ""}`;
           startPreviewPolling();
@@ -398,9 +405,10 @@
         const device = Number(els.device.value);
         const fps = Number(els.fps.value);
         const describe = els.describe.checked;
+        const file = els.file.value.trim() || null;
         const res = await fetch(`${SERVER_URL}/api/capture/start`, {
           method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ device, fps, describe }),
+          body: JSON.stringify({ device, fps, describe, file }),
         });
         if (!res.ok) {
           const err = await res.json().catch(() => ({ detail: "unknown" }));

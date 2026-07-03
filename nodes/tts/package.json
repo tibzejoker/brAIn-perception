@@ -20,7 +20,8 @@
   },
   "dependencies": {
     "@brain/core": "workspace:*",
-    "@brain/sdk": "workspace:*"
+    "@brain/sdk": "workspace:*",
+    "kokoro-js": "^1.2.1"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",

@@ -150,13 +150,16 @@ class GazeEngine:
 
     def analyze(
         self, image_bytes: bytes, remember: bool = True, describe: bool = False,
+        captured_at: str | None = None,
     ) -> DetectResponse:
-        # Capture the frame's arrival wall-clock up front. Any event that
-        # comes out of this call will be stamped with this time so the
-        # downstream correlator sees the moment the subject's gaze was
-        # actually in that state — not the moment after Moondream /
+        # Stamp events with the frame's CAPTURE wall-clock when the caller
+        # provides it (local capture knows when cv2.read returned); fall
+        # back to this call's arrival time. Any event that comes out of
+        # this call carries that stamp so the downstream correlator sees
+        # the moment the subject's gaze was actually in that state — not
+        # the moment the frame cleared the analysis queue and Moondream /
         # other slow per-frame inference finished.
-        frame_ts = _now_iso()
+        frame_ts = captured_at or _now_iso()
         # Lazy-load: if /capture/start wasn't called yet (someone hit
         # /api/identify directly), bring the models up here.
         self.ensure_models_loaded()

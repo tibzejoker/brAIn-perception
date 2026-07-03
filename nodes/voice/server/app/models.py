@@ -37,6 +37,10 @@ class CaptureStartIn(BaseModel):
     # device name. None → system default input.
     device: int | str | None = None
     session_id: str | None = None
+    # Media-file mode: absolute path of a video/audio file whose audio
+    # track is played into the pipeline as if it were the mic (demo/replay).
+    # When set, `device` is ignored.
+    file: str | None = None
 
 
 class SegmentEvent(BaseModel):

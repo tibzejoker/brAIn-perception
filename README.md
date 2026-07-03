@@ -4,7 +4,7 @@ Perception nodes for the [brAIn framework](https://github.com/tibzejoker/brAIn):
 
 - **`@brain/node-voice`** — local STT (faster-whisper) + speaker diarization (WeSpeaker), spawns its own Python server.
 - **`@brain/node-gaze`** — face detection + recognition (InsightFace) + gaze direction (Gazelle) + scene description (Moondream), spawns its own Python server.
-- **`@brain/node-intent`** — pure-TS correlator over `voice.transcript` + `gaze.target.resolved` bus events. Maintains a persons store linking voice ↔ gaze ↔ canonical name. Publishes `intent.detected`.
+- **`@brain/node-intent`** — pure-TS correlator over `voice.transcript` + `gaze.target.resolved` bus events. Maintains a persons store linking voice ↔ gaze ↔ canonical name. Publishes `intent.detected` (every correlated utterance) and `intent.addressed` when a speaker addresses the AI (camera gaze) — the latter carries the conversation overheard since the last addressed exchange (capped via `INTENT_CONTEXT_MAX_UTTERANCES` / `INTENT_CONTEXT_MAX_CHARS`), so the brain wakes once, with context, instead of on every sentence.
 
 This repo is an extracted opinionated stack — the core brAIn engine
 lives at [tibzejoker/brAIn](https://github.com/tibzejoker/brAIn).
@@ -23,21 +23,15 @@ scripts/
   seed-*.mjs         # apply a seed to a running brAIn API
 ```
 
-## Status — work in progress (Phase 1.4)
+## How it runs
 
-This repo is being extracted from the main brAIn monorepo. **It does
-not yet build or run on its own.** The node packages still reference
-`@brain/core` and `@brain/sdk` via `workspace:*`, which will be
-resolved when:
-
-- (Phase 1.5) the brAIn framework's `@brain/core` and `@brain/sdk` are
-  published, OR
-- you have a sibling checkout of `brAIn/` next to this repo and use
-  pnpm's `link-workspace-packages` mode.
-
-Until then, treat this repo as the canonical source of the perception
-nodes' code. The brAIn monorepo still ships in-tree copies under
-`nodes/` for working dev.
+The node packages reference `@brain/core` / `@brain/sdk` via
+`workspace:*`: this repo is designed to live next to a
+[brAIn](https://github.com/tibzejoker/brAIn) checkout as a pnpm
+workspace member — exactly the layout `npm create brain` produces.
+From the framework root, `pnpm --filter @brain/node-<name> build`
+builds a node, and the TypeRegistry auto-discovers the sister repo at
+boot; the easiest install path is the marketplace (`pnpm brain pull`).
 
 ## Setup
 
@@ -45,6 +39,35 @@ nodes' code. The brAIn monorepo still ships in-tree copies under
 # Python servers (one-off; downloads ~700 MB of ML models)
 pnpm setup:voice
 pnpm setup:gaze
+```
+
+## Video-file demo mode (replay a video as camera + mic)
+
+Both Python servers accept a media file in place of the live device —
+the file plays at real-time pace, so VAD/STT/diarization and face/gaze
+detection behave exactly as with a webcam + mic:
+
+```bash
+curl -X POST localhost:8765/api/capture/start \
+  -H 'content-type: application/json' -d '{"file": "/abs/path/demo.mp4"}'
+curl -X POST localhost:8766/api/capture/start \
+  -H 'content-type: application/json' -d '{"file": "/abs/path/demo.mp4", "fps": 6}'
+```
+
+The node UIs (dashboard → voice / gaze → open UI) expose the same thing
+via the 🎬 file field next to the device selector: the gaze preview shows
+the video with live bounding boxes + gaze arrows, the voice UI streams
+the transcript. At EOF gaze holds the last frame (pass `"loop": true` to
+rewind forever) and voice appends 2 s of silence so the last utterance
+finalizes.
+
+End-to-end, hands-free (seeds vocal-chat, plays the video on both
+servers, auto-links intent persons, waits for the brain's reply):
+
+```bash
+# stack must be running (brAIn/: pnpm start) + ollama serve
+pnpm demo:video                # uses <workspace>/demo_video.mp4
+pnpm demo:video /path/to.mp4   # or any file
 ```
 
 ## Standalone Python (debug only)

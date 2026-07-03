@@ -165,3 +165,43 @@ describe("buildSpeakArgs", () => {
     expect(() => buildSpeakArgs("hi", {}, "none")).toThrow(/no usable backend/);
   });
 });
+
+// === toSpeakable (kokoro path reads chat.response markdown aloud) ─────
+
+import { toSpeakable, buildPlayArgs } from "../src/handler";
+
+describe("toSpeakable", () => {
+  it("strips markdown decorations but keeps the words", () => {
+    expect(toSpeakable("**Hello** _world_ `x = 1` [link](http://a.b) #title"))
+      .toBe("Hello world x = 1 link title");
+  });
+
+  it("drops fenced code blocks entirely", () => {
+    expect(toSpeakable("Before\n```js\nconst a = 1;\n```\nAfter")).toBe("Before After");
+  });
+
+  it("collapses whitespace", () => {
+    expect(toSpeakable("a\n\n  b\t c")).toBe("a b c");
+  });
+});
+
+describe("buildPlayArgs", () => {
+  it("returns a platform-appropriate wav player command", () => {
+    const { cmd, args } = buildPlayArgs("C:/tmp/out.wav");
+    if (process.platform === "win32") {
+      expect(cmd).toBe("powershell");
+      expect(args.join(" ")).toContain("SoundPlayer");
+    } else if (process.platform === "darwin") {
+      expect(cmd).toBe("afplay");
+    } else {
+      expect(["aplay", "ffplay"]).toContain(cmd);
+    }
+    expect(args.join(" ")).toContain("out.wav");
+  });
+
+  it("escapes single quotes in the path on windows", () => {
+    if (process.platform !== "win32") return;
+    const { args } = buildPlayArgs("C:/it's here/x.wav");
+    expect(args.join(" ")).toContain("it''s");
+  });
+});

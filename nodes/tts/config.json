@@ -1,6 +1,6 @@
 {
   "name": "tts",
-  "description": "Cross-platform text-to-speech using built-in OS engines: 'say' on macOS, 'espeak-ng' on Linux, PowerShell System.Speech on Windows. Lightweight (no ML model). Listens on tts.speak, exposes voices via tts.voices.list.",
+  "description": "Text-to-speech: built-in OS engines (say / espeak-ng / System.Speech) or the Kokoro-82M neural voice (config_overrides.engine: 'kokoro', pure ONNX in-process, ~86 MB auto-download). Listens on tts.speak (and chat.response when subscribed); emits tts.spoken with the wav path.",
   "tags": [
     "service",
     "tts",
@@ -48,6 +48,9 @@
       },
       "tts.status": {
         "description": "tts.status"
+      },
+      "tts.spoken": {
+        "description": "Emitted (kokoro engine) right before playback starts: metadata carries {file, text, voice, started_at} so consumers can replay or mux the audio."
       }
     }
   },
@@ -69,6 +72,9 @@
       ],
       "tts.status": [
         "tts.status"
+      ],
+      "tts.spoken": [
+        "tts.spoken"
       ]
     }
   },

@@ -5,8 +5,10 @@
 #   voice  ──voice.transcript──────┐
 #   gaze   ──gaze.target.resolved──┤
 #                                  ▼
-#                              intent ──intent.detected──┬──> consciousness (brain LLM)
-#                                                        └──> chat (visu)
+#                              intent ──intent.detected───────> chat (visu, every utterance)
+#                                     └─intent.addressed──────> consciousness (brain LLM)
+#                                       (speaker addressed the AI; carries the
+#                                        conversation overheard since last time)
 #
 #   chat   ──chat.input─────────────> consciousness
 #   brain  ──chat.response──────────> chat
@@ -38,17 +40,21 @@ nodes:
     position: { x: 400, y: 300 }
 
   # ── CONSCIOUSNESS ─────────────────────────────────────────────
-  # Subscribes directly to intent.detected (every correlated utterance)
-  # plus chat.input (typed messages). Replies via response_topic.
+  # Subscribes to intent.addressed — fired only when a speaker addresses
+  # the AI (camera gaze), carrying the conversation overheard since the
+  # last exchange — plus chat.input (typed). Humans talking among
+  # themselves (intent.detected) do NOT wake the brain; they accumulate
+  # as context inside the intent node. Replies via response_topic.
   - type: brain
     name: consciousness
-    description: "LLM brain. Hears intent.detected (spoken) + chat.input (typed); replies on chat.response."
+    description: "LLM brain. Hears intent.addressed (spoken to it, with overheard context) + chat.input (typed); replies on chat.response."
     priority: 10
     position: { x: 800, y: 300 }
     subscriptions:
       - topic: "brain.*"
-      - topic: "intent.detected"
+      - topic: "intent.addressed"
       - topic: "chat.input"
+      - topic: "chat.reset"
       - topic: "alerts.*"
     config_overrides:
       model: "ollama/gemma4:e4b"
@@ -68,3 +74,21 @@ nodes:
     subscriptions:
       - topic: "chat.response"
       - topic: "intent.detected"
+
+  # ── VOICE OUT ─────────────────────────────────────────────────
+  # Kokoro-82M neural TTS (pure ONNX in-process, ~86 MB auto-download
+  # on first spawn). Subscribed to chat.response: the brain's replies
+  # are spoken out loud — the network hears AND answers with a voice.
+  - type: tts
+    name: voice-out
+    description: "Kokoro TTS. Speaks the brain's chat.response replies aloud; emits tts.spoken with the wav path."
+    priority: 5
+    position: { x: 1100, y: 300 }
+    subscriptions:
+      - topic: "tts.speak"
+      - topic: "tts.cancel"
+      - topic: "tts.voices.list"
+      - topic: "chat.response"
+    config_overrides:
+      engine: "kokoro"
+      default_voice: "af_heart"

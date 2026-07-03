@@ -22,12 +22,53 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import { BrainService, logger, getNodeDataRoot } from "@brain/core";
 import type { NodeHandler, NodeInfo, NodeOnSpawn, NodeTeardown } from "@brain/sdk";
-import { IntentStore, type Person } from "./store";
+import { IntentStore, type IntentRecord, type Person } from "./store";
 import { Timeline, type GazeEvent, type VoiceSegment } from "./timeline";
 import { IntentCorrelator, DEFAULT_CORRELATOR_CONFIG } from "./correlator";
 import { startIntentServer, type IntentServerHandle } from "./server";
 
 const SERVER_PORT = Number(process.env.INTENT_SERVER_PORT ?? "8767");
+// Correlation runs this long after a finalized segment arrives, not at
+// arrival: gaze frames sit in the analysis queue for a beat, so the
+// glance-at-camera belonging to an utterance can land on the bus a couple
+// of seconds after its transcript. Correlating immediately would vote on
+// a timeline that doesn't contain those events yet.
+const CORRELATE_DEFER_MS = Number(process.env.INTENT_CORRELATE_DEFER_MS ?? "3000");
+// Caps for the conversation delta shipped with each intent.addressed —
+// everything overheard since the LAST addressed exchange, most recent kept.
+const CONTEXT_MAX_UTTERANCES = Number(process.env.INTENT_CONTEXT_MAX_UTTERANCES ?? "20");
+const CONTEXT_MAX_CHARS = Number(process.env.INTENT_CONTEXT_MAX_CHARS ?? "1500");
+
+/** One overheard utterance, trimmed to what a prompt needs. */
+interface ContextUtterance {
+  ts: string;
+  speaker: string;
+  target_kind: string;
+  target_name: string | null;
+  text: string;
+}
+
+function toContextUtterance(intent: IntentRecord): ContextUtterance {
+  return {
+    ts: intent.ts,
+    speaker: intent.source_name ?? "Unknown speaker",
+    target_kind: intent.target_kind,
+    target_name: intent.target_name,
+    text: intent.text,
+  };
+}
+
+/** Keep the most recent utterances within both caps (count + total chars). */
+function capContext(buffer: readonly ContextUtterance[]): ContextUtterance[] {
+  const out: ContextUtterance[] = [];
+  let chars = 0;
+  for (let i = buffer.length - 1; i >= 0 && out.length < CONTEXT_MAX_UTTERANCES; i--) {
+    chars += buffer[i].text.length;
+    if (chars > CONTEXT_MAX_CHARS && out.length > 0) break;
+    out.unshift(buffer[i]);
+  }
+  return out;
+}
 
 // Where intent.db lives. Resolved lazily (on first boot, after the framework
 // has wired its data root) so it lands in the shared <dataRoot>/ next to
@@ -44,6 +85,7 @@ let correlator: IntentCorrelator | null = null;
 let server: IntentServerHandle | null = null;
 let serverBoot: Promise<void> | null = null;
 let pruneTimer: NodeJS.Timeout | null = null;
+let contextBuffer: ContextUtterance[] = [];
 
 function bus(): ReturnType<typeof getBusOrNull> { return getBusOrNull(); }
 function getBusOrNull(): NonNullable<typeof BrainService.current>["bus"] | null {
@@ -72,9 +114,26 @@ function ensureBoot(): Promise<void> {
   timeline = new Timeline();
   correlator = new IntentCorrelator(
     store, timeline, DEFAULT_CORRELATOR_CONFIG,
-    (intent) => {
+    (intent, dispatch) => {
       server?.broadcastIntent(intent);
       publish("intent.detected", intent as unknown as Record<string, unknown>, 4);
+      if (!dispatch.addressed) {
+        // Humans talking among themselves: accumulate as context, don't
+        // wake the brain — it subscribes to intent.addressed only.
+        contextBuffer.push(toContextUtterance(intent));
+        return;
+      }
+      // Someone addressed the AI → ship the question together with the
+      // conversation overheard since the last addressed exchange, then
+      // start a fresh delta.
+      const context = capContext(contextBuffer);
+      publish("intent.addressed", {
+        question: intent as unknown as Record<string, unknown>,
+        context,
+        dropped_utterances: contextBuffer.length - context.length,
+        camera_overlap_s: dispatch.camera_overlap_s,
+      }, 4);
+      contextBuffer = [];
     },
   );
   pruneTimer = setInterval(() => timeline?.prune(Date.now() / 1000), 30_000);
@@ -83,6 +142,7 @@ function ensureBoot(): Promise<void> {
     store,
     timeline,
     onPersonChange: (kind, person) => {
+      if (kind !== "delete") retroCorrelate(person as Person);
       publish("intent.persons.changed", { kind, person });
     },
   }).then((handle) => {
@@ -97,6 +157,35 @@ function ensureBoot(): Promise<void> {
     }
   });
   return serverBoot;
+}
+
+/**
+ * Single choke-point into the correlator: resolves the person link if it
+ * appeared since the segment arrived, and guarantees a segment correlates
+ * exactly once no matter which path (deferred timer, person retro-link)
+ * reaches it first.
+ */
+function fireCorrelation(seg: VoiceSegment): void {
+  if (!store || !correlator || seg.correlated || seg.provisional) return;
+  if (!seg.person_id) {
+    const linked = store.findByVoice(seg.voice_profile_id);
+    if (!linked) return; // retro-correlation fires it when the person lands
+    seg.person_id = linked.id;
+  }
+  seg.correlated = true;
+  correlator.onSegment(seg);
+}
+
+/**
+ * Re-run correlation over buffered-but-unlinked events after a person is
+ * created or updated. Voice profiles only exist once their first segment
+ * finalizes, so person linkage always races the very utterances it is
+ * meant to correlate — without this, the segment that triggered the link
+ * never reaches the correlator (nor the brain).
+ */
+function retroCorrelate(person: Person): void {
+  if (!timeline || !correlator) return;
+  for (const seg of timeline.relink(person)) fireCorrelation(seg);
 }
 
 function ingestVoiceTranscript(metadata: Record<string, unknown>): void {
@@ -116,9 +205,10 @@ function ingestVoiceTranscript(metadata: Record<string, unknown>): void {
     provisional,
     person_id: linked?.id ?? null,
     ts_end: metadata.ts_end !== null && metadata.ts_end !== undefined ? Number(metadata.ts_end) : null,
+    correlated: false,
   };
   timeline.addVoice(seg);
-  if (!provisional && seg.person_id) correlator.onSegment(seg);
+  if (!provisional) setTimeout(() => fireCorrelation(seg), CORRELATE_DEFER_MS);
 }
 
 function ingestGazeEvent(metadata: Record<string, unknown>): void {
@@ -157,12 +247,16 @@ function applyPersonCommand(topic: string, payload: Record<string, unknown>): vo
       voice_profile_id: (payload.voice_profile_id as string | null | undefined) ?? null,
       gaze_profile_id: (payload.gaze_profile_id as string | null | undefined) ?? null,
     });
+    retroCorrelate(p);
     publish("intent.persons.changed", { kind: "create", person: p });
   } else if (topic === "intent.persons.update") {
     const id = String(payload.id ?? "");
     if (!id) return;
     const p = store.patchPerson(id, payload as Partial<Person>);
-    if (p) publish("intent.persons.changed", { kind: "update", person: p });
+    if (p) {
+      retroCorrelate(p);
+      publish("intent.persons.changed", { kind: "update", person: p });
+    }
   } else if (topic === "intent.persons.delete") {
     const id = String(payload.id ?? "");
     if (!id) return;
@@ -199,6 +293,7 @@ export const teardown: NodeTeardown = async () => {
   serverBoot = null;
   timeline = null;
   correlator = null;
+  contextBuffer = [];
   nodeId = null;
 };
 

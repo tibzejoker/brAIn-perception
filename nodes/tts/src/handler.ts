@@ -1,7 +1,8 @@
+import * as path from "node:path";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { promisify } from "node:util";
 import { execFile as execFileCb } from "node:child_process";
-import { BrainService } from "@brain/core";
+import { BrainService, getNodeDataRoot, logger } from "@brain/core";
 import type {
   NodeHandler,
   NodeInfo,
@@ -10,10 +11,22 @@ import type {
   TextPayload,
   Message,
 } from "@brain/sdk";
+import {
+  DEFAULT_KOKORO_VOICE,
+  kokoroLoaded,
+  kokoroSynthesize,
+  kokoroVoices,
+  loadKokoro,
+} from "./kokoro";
 
 const execFile = promisify(execFileCb);
 
 type Backend = "say" | "espeak-ng" | "espeak" | "powershell" | "none";
+type Engine = "os" | "kokoro";
+
+function resolveEngine(overrides: Record<string, unknown> | undefined): Engine {
+  return overrides?.engine === "kokoro" ? "kokoro" : "os";
+}
 
 interface Voice {
   name: string;
@@ -27,6 +40,7 @@ interface SpeakOpts {
 }
 
 let backend: Backend = "none";
+let engine: Engine = "os";
 let voicesCache: Voice[] = [];
 let voicesLoaded = false;
 let current: ChildProcess | null = null;
@@ -182,16 +196,28 @@ export function buildSpeakArgs(
   throw new Error(`tts: no usable backend (platform=${process.platform})`);
 }
 
-function speakOnce(
-  text: string,
-  opts: SpeakOpts,
+/** Platform command that plays a wav file and exits when done. */
+export function buildPlayArgs(file: string): { cmd: string; args: string[] } {
+  if (process.platform === "darwin") return { cmd: "afplay", args: [file] };
+  if (process.platform === "win32") {
+    const ps = `(New-Object Media.SoundPlayer '${file.replace(/'/g, "''")}').PlaySync()`;
+    return { cmd: "powershell", args: ["-NoProfile", "-Command", ps] };
+  }
+  // Linux: aplay ships with alsa-utils nearly everywhere; ffplay as fallback.
+  if (commandExists("aplay")) return { cmd: "aplay", args: ["-q", file] };
+  return { cmd: "ffplay", args: ["-nodisp", "-autoexit", "-loglevel", "quiet", file] };
+}
+
+function runChild(
+  cmd: string,
+  args: string[],
   signal: AbortSignal,
+  input?: string,
 ): Promise<{ exit: number; err?: string }> {
   if (current) {
     try { current.kill("SIGTERM"); } catch { /* ignore */ }
     current = null;
   }
-  const { cmd, args, input } = buildSpeakArgs(text, opts);
   return new Promise((resolve) => {
     const child = spawn(cmd, args, { stdio: ["pipe", "ignore", "pipe"] });
     current = child;
@@ -214,13 +240,29 @@ function speakOnce(
   });
 }
 
+function speakOnce(
+  text: string,
+  opts: SpeakOpts,
+  signal: AbortSignal,
+): Promise<{ exit: number; err?: string }> {
+  const { cmd, args, input } = buildSpeakArgs(text, opts);
+  return runChild(cmd, args, signal, input);
+}
+
+function playFile(file: string, signal: AbortSignal): Promise<{ exit: number; err?: string }> {
+  const { cmd, args } = buildPlayArgs(file);
+  return runChild(cmd, args, signal);
+}
+
 function buildReadyPayload(): Record<string, unknown> {
   return {
     state: "ready",
     platform: process.platform,
     backend,
+    engine,
+    kokoro_loaded: kokoroLoaded(),
     voices: voicesCache,
-    install_hint: backend === "none" ? installHint : null,
+    install_hint: backend === "none" && engine === "os" ? installHint : null,
   };
 }
 
@@ -239,10 +281,19 @@ function publishReady(): void {
 
 export const onSpawn: NodeOnSpawn = async (info: NodeInfo) => {
   nodeId = info.id;
+  engine = resolveEngine(info.config_overrides);
   backend = await detectBackend();
   installHint = pickInstallHint();
   voicesLoaded = false;
   voicesCache = [];
+  if (engine === "kokoro") {
+    // Warm the model in the background so the first spoken reply doesn't
+    // pay the download+load cost. Failure is non-fatal: speak falls back
+    // to the OS backend and retries kokoro next time.
+    loadKokoro()
+      .then(() => publishReady())
+      .catch((err: unknown) => logger.warn({ err }, "tts: kokoro warmup failed (will retry on demand)"));
+  }
   await listVoices();
   publishReady();
 };
@@ -252,8 +303,21 @@ function asText(msg: Message): string {
   return typeof p?.content === "string" ? p.content : "";
 }
 
+/** Strip markdown decorations so the synthesizer doesn't read them aloud. */
+export function toSpeakable(markdown: string): string {
+  return markdown
+    .replace(/```[\s\S]*?```/g, " ")   // code blocks
+    .replace(/`([^`]*)`/g, "$1")
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/[*_#>~|]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export const handler: NodeHandler = async (ctx) => {
   nodeId ??= ctx.node.id;
+  engine = resolveEngine(ctx.node.config_overrides);
   if (backend === "none") {
     backend = await detectBackend();
     if (installHint === null) installHint = pickInstallHint();
@@ -276,12 +340,14 @@ export const handler: NodeHandler = async (ctx) => {
     if (typeof target === "string" && target !== ctx.node.id) continue;
 
     if (msg.topic === "tts.voices.list") {
-      const voices = await listVoices();
+      const voices = engine === "kokoro"
+        ? await kokoroVoices().catch(() => [] as Voice[])
+        : await listVoices();
       ctx.publish("tts.voices", {
         type: "text",
         criticality: 1,
-        payload: { content: JSON.stringify({ backend, voices }) },
-        metadata: { backend, voices, platform: process.platform, install_hint: installHint },
+        payload: { content: JSON.stringify({ backend, engine, voices }) },
+        metadata: { backend, engine, voices, platform: process.platform, install_hint: installHint },
       });
       continue;
     }
@@ -300,10 +366,52 @@ export const handler: NodeHandler = async (ctx) => {
       continue;
     }
 
-    if (msg.topic !== "tts.speak") continue;
+    // Two ways to be asked to talk: an explicit tts.speak, or — when the
+    // seed subscribes us to it — the brain's chat.response stream, spoken
+    // as-is so the network literally answers out loud.
+    if (msg.topic !== "tts.speak" && msg.topic !== "chat.response") continue;
 
-    const text = asText(msg).trim();
+    const text = (msg.topic === "chat.response" ? toSpeakable(asText(msg)) : asText(msg)).trim();
     if (!text) continue;
+
+    const meta = (msg.metadata ?? {}) as { voice?: string; rate?: number };
+    const opts: SpeakOpts = {
+      voice: typeof meta.voice === "string" ? meta.voice : overrides.default_voice,
+      rate: typeof meta.rate === "number" ? meta.rate : overrides.default_rate,
+    };
+
+    if (engine === "kokoro") {
+      ctx.publish("tts.status", {
+        type: "text",
+        criticality: 1,
+        payload: { content: kokoroLoaded() ? "speaking" : "loading kokoro model…" },
+        metadata: { state: "speaking", engine, text, voice: opts.voice ?? DEFAULT_KOKORO_VOICE },
+      });
+      try {
+        const outDir = path.join(getNodeDataRoot(), "tts-audio");
+        const file = await kokoroSynthesize(text, opts.voice ?? DEFAULT_KOKORO_VOICE, outDir);
+        // Published BEFORE playback so consumers (demo recorder muxing the
+        // wav into a screen capture) get the exact start-of-audio instant.
+        ctx.publish("tts.spoken", {
+          type: "text",
+          criticality: 1,
+          payload: { content: text },
+          metadata: { file, text, voice: opts.voice ?? DEFAULT_KOKORO_VOICE, started_at: Date.now() },
+        });
+        const played = await playFile(file, ctx.signal);
+        ctx.publish("tts.status", {
+          type: "text",
+          criticality: played.exit === 0 ? 1 : 3,
+          payload: { content: played.exit === 0 ? "spoken" : (played.err ?? `player exited ${played.exit}`) },
+          metadata: { state: played.exit === 0 ? "spoken" : "error", engine, file, text },
+        });
+        continue;
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        ctx.log("error", `kokoro synthesis failed — falling back to OS engine: ${reason}`);
+        // fall through to the OS path below
+      }
+    }
 
     if (backend === "none") {
       const hint = installHint
@@ -323,12 +431,6 @@ export const handler: NodeHandler = async (ctx) => {
       });
       continue;
     }
-
-    const meta = (msg.metadata ?? {}) as { voice?: string; rate?: number };
-    const opts: SpeakOpts = {
-      voice: typeof meta.voice === "string" ? meta.voice : overrides.default_voice,
-      rate: typeof meta.rate === "number" ? meta.rate : overrides.default_rate,
-    };
 
     ctx.publish("tts.status", {
       type: "text",

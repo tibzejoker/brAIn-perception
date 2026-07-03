@@ -8,6 +8,7 @@ target uses a callback we can flip from the test side. Run with:
 from __future__ import annotations
 
 import os
+import sys
 import threading
 import unittest
 from unittest.mock import patch
@@ -20,6 +21,13 @@ class HeartbeatTests(unittest.TestCase):
         self.assertTrue(_is_alive(os.getpid()))
 
     def test_alive_returns_false_for_unused_pid(self) -> None:
+        if sys.platform == "win32":
+            # Windows process ids are always multiples of 4, so an odd pid
+            # can never exist — and os.kill(pid, 0) is unusable as a probe
+            # there (signal 0 means CTRL_C_EVENT and free pids raise
+            # OSError WinError 87 instead of ProcessLookupError).
+            self.assertFalse(_is_alive(4194303))
+            return
         # PID 1 is init / launchd — always alive on macOS/Linux. We need an
         # unused PID. Walk down from 2^22 and find one that ProcessLookupError's.
         for candidate in range(4194303, 100, -1):

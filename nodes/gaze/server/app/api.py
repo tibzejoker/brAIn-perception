@@ -20,6 +20,11 @@ class CaptureStartIn(BaseModel):
     device: int = 0
     fps: float = 6.0
     describe: bool = False
+    # Video-file mode: absolute path of a video to play as if it were the
+    # camera (demo/replay). When set, `device` is ignored. `loop` rewinds
+    # at EOF instead of holding the last frame.
+    file: str | None = None
+    loop: bool = False
 
 
 class CaptureDescribeIn(BaseModel):
@@ -146,6 +151,15 @@ def build_router(
     def capture_status() -> dict:
         return capture.status()
 
+    @router.post("/warmup")
+    def warmup() -> dict[str, bool]:
+        """Load the ML models without starting a capture. Lets a controller
+        that must start several sources in sync (e.g. the same video file
+        as camera AND mic) pay the model-load cost up front, so the
+        subsequent /capture/start begins streaming immediately."""
+        engine.ensure_models_loaded()
+        return {"ready": True}
+
     @router.post("/capture/start")
     def capture_start(body: CaptureStartIn) -> dict:
         # Bring the recognizer / gazelle / moondream / iris into RAM
@@ -156,6 +170,7 @@ def build_router(
         try:
             return capture.start(
                 device=body.device, fps=body.fps, describe=body.describe,
+                file=body.file, loop=body.loop,
             )
         except CaptureError as e:
             raise HTTPException(503, str(e)) from e

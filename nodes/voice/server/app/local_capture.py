@@ -1,14 +1,18 @@
-"""Local microphone capture.
+"""Local microphone or video/audio-file capture.
 
 Bypasses the browser/WS audio path: opens the host microphone directly via
-sounddevice and feeds int16 PCM frames into the same SessionHub the WS
-endpoint uses. Lets the brAIn UI (or any other controller) drive the voice
-pipeline without forcing a web frontend to stay open just for getUserMedia.
+sounddevice — or decodes a media file's audio track (demo/replay mode) —
+and feeds int16 PCM frames into the same SessionHub the WS endpoint uses.
+Lets the brAIn UI (or any other controller) drive the voice pipeline
+without forcing a web frontend to stay open just for getUserMedia.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import threading
+import time
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -20,6 +24,7 @@ SAMPLE_RATE = 16000
 CHANNELS = 1
 BLOCKSIZE = 1024  # ~64 ms at 16 kHz; matches the cadence the WS path was using
 QUEUE_MAX = 64    # ~4 s of audio in flight; we drop oldest on overflow
+TAIL_SILENCE_S = 2.0  # silence appended after a file ends so VAD finalizes the last utterance
 
 
 class CaptureError(RuntimeError):
@@ -38,6 +43,10 @@ class LocalCapture:
         self._stream = None  # sd.InputStream | None — typed loosely so the import stays lazy
         self._device: int | None = None
         self._device_name: str | None = None
+        self._file: str | None = None
+        self._file_thread: threading.Thread | None = None
+        self._file_stop = threading.Event()
+        self._ended = False
         self._loop: asyncio.AbstractEventLoop | None = None
         self._queue: asyncio.Queue[bytes] | None = None
         self._consumer: asyncio.Task[None] | None = None
@@ -45,25 +54,39 @@ class LocalCapture:
 
     @property
     def is_running(self) -> bool:
-        return self._stream is not None
+        if self._stream is not None:
+            return True
+        t = self._file_thread
+        return t is not None and t.is_alive()
 
     def status(self) -> dict[str, object]:
         return {
             "running": self.is_running,
             "device": self._device,
             "device_name": self._device_name,
+            "source": "file" if self._file else "device",
+            "file": self._file,
+            "ended": self._ended,
             "session_id": self._hub.active_session,
             "sample_rate": SAMPLE_RATE,
             "dropped_frames": self._dropped_frames,
         }
 
-    async def start(self, device: int | str | None, session_id: str = "default") -> dict[str, object]:
-        # Already running on the same device → no-op. Different device →
-        # stop the current stream first so the user's selection actually
-        # takes effect (Windows/Mac sounddevice fall back to the host
-        # default if you don't explicitly close the previous stream).
-        if self._stream is not None:
-            if device is None or device == self._device:
+    async def start(
+        self,
+        device: int | str | None,
+        session_id: str = "default",
+        file: str | None = None,
+    ) -> dict[str, object]:
+        if file:
+            return await self._start_file(file, session_id)
+        # Already running on the same device → no-op. Different device (or
+        # leftover file capture, even an ended one) → stop first so the
+        # user's selection actually takes effect (Windows/Mac sounddevice
+        # fall back to the host default if you don't explicitly close the
+        # previous stream).
+        if self._stream is not None or self._file_thread is not None:
+            if self._stream is not None and (device is None or device == self._device):
                 return self.status()
             await self.stop()
 
@@ -115,16 +138,138 @@ class LocalCapture:
                  self._device, self._device_name, session_id)
         return self.status()
 
+    async def _start_file(self, file: str, session_id: str) -> dict[str, object]:
+        """Play a media file's audio track into the pipeline (demo/replay).
+
+        The file is decoded with PyAV (already present via faster-whisper),
+        resampled to the mic format (16 kHz mono int16), and pushed at
+        real-time pace so VAD/STT/diarization see exactly what a live mic
+        would produce. A short silence tail is appended at EOF so the VAD
+        finalizes the last utterance; the session then stays listening
+        until stop() is called.
+        """
+        if self._stream is not None or self._file_thread is not None:
+            if file == self._file and self.is_running:
+                return self.status()
+            await self.stop()
+
+        if not os.path.isfile(file):
+            raise CaptureError(f"media file not found: {file}")
+        try:
+            import av
+        except ImportError as e:
+            raise CaptureError(
+                "PyAV is not installed in this environment. "
+                "Install it via `pip install av` (ships with faster-whisper)."
+            ) from e
+
+        # Open + probe synchronously so a broken/audio-less file fails the
+        # HTTP call instead of dying silently inside the reader thread.
+        try:
+            container = av.open(file)
+        except Exception as e:
+            raise CaptureError(f"failed to open media file: {e}") from e
+        if not container.streams.audio:
+            container.close()
+            raise CaptureError(f"no audio track in {file}")
+
+        self._loop = asyncio.get_running_loop()
+        self._queue = asyncio.Queue(maxsize=QUEUE_MAX)
+        self._dropped_frames = 0
+        self._file = file
+        self._ended = False
+        self._file_stop.clear()
+
+        await self._hub.start_session(session_id)
+        self._consumer = asyncio.create_task(self._drain())
+        self._file_thread = threading.Thread(
+            target=self._file_reader, args=(container,), name="voice-file-capture", daemon=True,
+        )
+        self._file_thread.start()
+        log.info("file capture started (file=%s session=%s)", file, session_id)
+        return self.status()
+
+    def _file_reader(self, container: object) -> None:
+        """Daemon thread: decode → resample → pace → enqueue.
+
+        Pacing is sample-count based: frame N of PCM may only be pushed
+        once wall-clock has reached N/SAMPLE_RATE since start. That gives
+        the engine the same real-time cadence as sounddevice's callback.
+        """
+        import av
+
+        resampler = av.AudioResampler(format="s16", layout="mono", rate=SAMPLE_RATE)
+        t0 = time.monotonic()
+        sent_samples = 0
+        buf = bytearray()
+        chunk_bytes = BLOCKSIZE * 2  # int16 mono
+
+        def push_pcm(data: bytes, flush: bool = False) -> bool:
+            """Chunk into BLOCKSIZE frames and enqueue, sleeping to stay
+            real-time. Returns False when stop was requested."""
+            nonlocal sent_samples
+            buf.extend(data)
+            while len(buf) >= chunk_bytes or (flush and buf):
+                take = min(chunk_bytes, len(buf))
+                chunk = bytes(buf[:take])
+                del buf[:take]
+                delay = t0 + sent_samples / SAMPLE_RATE - time.monotonic()
+                if delay > 0 and self._file_stop.wait(delay):
+                    return False
+                loop = self._loop
+                if loop is None or loop.is_closed():
+                    return False
+                try:
+                    loop.call_soon_threadsafe(self._enqueue, chunk)
+                except RuntimeError:
+                    return False
+                sent_samples += take // 2
+            return True
+
+        try:
+            for frame in container.decode(audio=0):  # type: ignore[attr-defined]
+                if self._file_stop.is_set():
+                    return
+                for resampled in _as_frames(resampler.resample(frame)):
+                    if not push_pcm(bytes(resampled.to_ndarray().tobytes())):
+                        return
+            for resampled in _as_frames(resampler.resample(None)):
+                if not push_pcm(bytes(resampled.to_ndarray().tobytes())):
+                    return
+            # Tail silence: the engine's VAD needs post-speech silence to
+            # close the final segment — a file that ends mid-sentence would
+            # otherwise leave the last utterance unfinalized forever.
+            silence = b"\x00" * int(TAIL_SILENCE_S * SAMPLE_RATE) * 2
+            push_pcm(silence, flush=True)
+            log.info("file capture reached EOF (%.1fs of audio) — session stays listening",
+                     sent_samples / SAMPLE_RATE)
+        except Exception:
+            log.exception("file capture reader crashed")
+        finally:
+            self._ended = True
+            try:
+                container.close()  # type: ignore[attr-defined]
+            except Exception:
+                pass
+
     async def stop(self) -> dict[str, object]:
-        if self._stream is None:
+        if self._stream is None and self._file_thread is None:
             return self.status()
 
         stream, self._stream = self._stream, None
-        try:
-            stream.stop()
-            stream.close()
-        except Exception:
-            log.exception("error closing audio stream (continuing)")
+        if stream is not None:
+            try:
+                stream.stop()
+                stream.close()
+            except Exception:
+                log.exception("error closing audio stream (continuing)")
+
+        thread, self._file_thread = self._file_thread, None
+        if thread is not None:
+            self._file_stop.set()
+            thread.join(timeout=2.0)
+        self._file = None
+        self._ended = False
 
         consumer, self._consumer = self._consumer, None
         if consumer is not None:
@@ -173,6 +318,16 @@ class LocalCapture:
                     log.exception("hub.push_audio failed (continuing)")
         except asyncio.CancelledError:
             pass
+
+
+def _as_frames(resampled: object) -> list:
+    """Normalize AudioResampler.resample() output across PyAV versions:
+    older releases return a single frame (or None), newer ones a list."""
+    if resampled is None:
+        return []
+    if isinstance(resampled, list):
+        return resampled
+    return [resampled]
 
 
 def _resolve_device_info(sd, device: int | str | None) -> tuple[int | None, str | None]:  # noqa: ANN001
