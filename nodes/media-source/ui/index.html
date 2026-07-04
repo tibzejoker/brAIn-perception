@@ -65,6 +65,11 @@
     .chip .v { font-family: var(--font-mono); font-size: 11px; text-align: right; word-break: break-all; }
     .error-box { padding: 8px 10px; border: 1px solid var(--danger); border-radius: var(--radius);
       color: var(--danger); font-size: 12px; display: none; }
+    .side-toggle { background: transparent; color: var(--text-dim); border: 1px solid var(--border);
+      border-radius: var(--radius-sm); padding: 4px 8px; font-size: 12px; cursor: pointer; }
+    .side-toggle:hover { color: var(--text); background: var(--elevated); }
+    body.side-collapsed main { grid-template-columns: 1fr; }
+    body.side-collapsed main .pane:last-child { display: none; }
   </style>
 </head>
 <body>
@@ -85,6 +90,7 @@
     </label>
     <button id="play" class="primary">▶ Play</button>
     <button id="stop" class="danger" disabled>■ Stop</button>
+    <button id="side-toggle" class="side-toggle" style="margin-left:auto" title="Show/hide the pipelines panel"></button>
   </div>
 
   <main>
@@ -126,6 +132,16 @@
       cVoice: document.getElementById("c-voice"),
       cGaze: document.getElementById("c-gaze"),
     };
+
+    // Collapsible side panel — persisted, like the chat UI's monitor toggle.
+    const sideBtn = document.getElementById("side-toggle");
+    function applySide(collapsed) {
+      document.body.classList.toggle("side-collapsed", collapsed);
+      sideBtn.textContent = collapsed ? "❮ panels" : "❯ panels";
+      localStorage.setItem("media:side-collapsed", collapsed ? "1" : "0");
+    }
+    sideBtn.onclick = () => applySide(!document.body.classList.contains("side-collapsed"));
+    applySide(localStorage.getItem("media:side-collapsed") === "1");
 
     els.file.value = localStorage.getItem("media-source:file") ?? "";
     let previewTimer = null;

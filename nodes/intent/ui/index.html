@@ -137,6 +137,11 @@
     .intent .text { color: var(--text); font-size: 14px; }
 
     .arrow { color: var(--text-muted); }
+    .side-toggle { background: transparent; color: var(--text-dim); border: 1px solid var(--border);
+      border-radius: 4px; padding: 4px 8px; font-size: 12px; cursor: pointer; }
+    .side-toggle:hover { color: var(--text); }
+    body.side-collapsed main { grid-template-columns: 1fr; }
+    body.side-collapsed main > aside.pane { display: none; }
   </style>
 </head>
 <body>
@@ -145,7 +150,10 @@
       <h1>intent</h1>
       <div class="hint">Correlator over <code>voice.transcript</code> + <code>gaze.target.resolved</code>. Link voice and gaze profiles to a person to see who addresses whom.</div>
     </div>
-    <div class="hint" id="status">connecting…</div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <div class="hint" id="status">connecting…</div>
+      <button id="side-toggle" class="side-toggle" title="Show/hide the Persons panel"></button>
+    </div>
   </header>
 
   <main>
@@ -171,6 +179,16 @@
   </main>
 
   <script>
+    // Collapsible side panel — persisted, like the chat UI's monitor toggle.
+    const sideBtn = document.getElementById("side-toggle");
+    function applySide(collapsed) {
+      document.body.classList.toggle("side-collapsed", collapsed);
+      sideBtn.textContent = collapsed ? "❯ panels" : "❮ panels";
+      localStorage.setItem("intent:side-collapsed", collapsed ? "1" : "0");
+    }
+    sideBtn.onclick = () => applySide(!document.body.classList.contains("side-collapsed"));
+    applySide(localStorage.getItem("intent:side-collapsed") === "1");
+
     const SERVER_URL = "http://localhost:8767";
     const WS_URL = "ws://localhost:8767/ws/intents";
 

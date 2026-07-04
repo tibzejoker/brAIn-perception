@@ -112,6 +112,18 @@
     .area-tuning { grid-area: tuning; }
     .area-timeline { grid-area: timeline; }
     .area-transcript { grid-area: transcript; }
+    /* ── Collapsible side panel (chat-UI-style toggle) ─────────── */
+    .side-toggle { background: transparent; color: var(--text-dim); border: 1px solid var(--border);
+      border-radius: var(--radius-sm); padding: 4px 8px; font-size: 12px; cursor: pointer; }
+    .side-toggle:hover { color: var(--text); background: var(--elevated); }
+    body.side-collapsed main {
+      grid-template-columns: 1fr;
+      grid-template-areas:
+        "timeline"
+        "transcript";
+    }
+    body.side-collapsed .area-speakers, body.side-collapsed .area-tuning { display: none; }
+
 
     .pane { background: var(--bg); display: flex; flex-direction: column; min-height: 0; min-width: 0; }
     .pane h2 {
@@ -199,6 +211,7 @@
     <button id="stop" class="danger" disabled>Stop</button>
     <span class="hint" id="meta"></span>
     <button id="reset" class="ghost" style="margin-left:auto">Reset all profiles</button>
+    <button id="side-toggle" class="side-toggle" title="Show/hide the side panels"></button>
   </div>
 
   <main>
@@ -307,6 +320,16 @@
       els.status.className = `status ${state}`;
       els.statusText.textContent = text;
     }
+
+    // Collapsible side panel — persisted, like the chat UI's monitor toggle.
+    const sideBtn = document.getElementById("side-toggle");
+    function applySide(collapsed) {
+      document.body.classList.toggle("side-collapsed", collapsed);
+      sideBtn.textContent = collapsed ? "❯ panels" : "❮ panels";
+      localStorage.setItem("voice:side-collapsed", collapsed ? "1" : "0");
+    }
+    sideBtn.onclick = () => applySide(!document.body.classList.contains("side-collapsed"));
+    applySide(localStorage.getItem("voice:side-collapsed") === "1");
 
     // ── Devices + capture control ──────────────────────────────────────
     async function loadDevices() {
