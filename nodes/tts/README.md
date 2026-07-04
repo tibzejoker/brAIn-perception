@@ -15,8 +15,10 @@ Text-to-speech node — gives the network a voice. Two engines:
 
 **Listens:**
 - `tts.speak` — speak `payload.content` (metadata: `voice`, `rate`).
-- `chat.response` — when subscribed (see the vocal-chat seed), the brain's
-  replies are spoken aloud automatically; markdown is stripped first.
+- `chat.response` — spoken aloud automatically **only when**
+  `config_overrides.speak_replies: true` (the vocal-chat seed sets it);
+  markdown is stripped first. Without the flag, replies stay text-only and
+  the chat UI's 🔊 toggle drives speech on demand via `tts.speak`.
 - `tts.cancel` — stop the current utterance.
 - `tts.voices.list` — reply on `tts.voices` with the available voices
   (Kokoro: `af_heart`, `am_michael`, `bf_emma`, … — `af`/`am` en-US,
@@ -36,6 +38,7 @@ config_overrides:
   engine: "kokoro"        # or omit for OS voices
   default_voice: "af_heart"
   default_rate: 180        # OS engines only (words/min)
+  speak_replies: true      # auto-speak chat.response (default: off)
 ```
 
 Env: `TTS_KOKORO_DTYPE` (default `q8`).

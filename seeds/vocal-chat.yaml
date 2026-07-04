@@ -92,3 +92,7 @@ nodes:
     config_overrides:
       engine: "kokoro"
       default_voice: "af_heart"
+      # Deliberate opt-in: this seed WANTS the room agent to answer out
+      # loud. Set false (or remove) to keep replies text-only — the chat
+      # UI's 🔊 toggle still works for on-demand speech either way.
+      speak_replies: true

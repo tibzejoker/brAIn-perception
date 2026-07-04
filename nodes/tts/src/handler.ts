@@ -366,10 +366,15 @@ export const handler: NodeHandler = async (ctx) => {
       continue;
     }
 
-    // Two ways to be asked to talk: an explicit tts.speak, or — when the
-    // seed subscribes us to it — the brain's chat.response stream, spoken
-    // as-is so the network literally answers out loud.
+    // Two ways to be asked to talk: an explicit tts.speak, or the brain's
+    // chat.response stream — the latter ONLY when the node is configured
+    // for it (speak_replies: true, as in the vocal-chat seed). Auto-speech
+    // must be a deliberate choice, not a side effect of a subscription.
     if (msg.topic !== "tts.speak" && msg.topic !== "chat.response") continue;
+    if (msg.topic === "chat.response"
+      && (ctx.node.config_overrides as { speak_replies?: boolean } | undefined)?.speak_replies !== true) {
+      continue;
+    }
 
     const text = (msg.topic === "chat.response" ? toSpeakable(asText(msg)) : asText(msg)).trim();
     if (!text) continue;
