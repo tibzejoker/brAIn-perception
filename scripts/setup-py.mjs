@@ -49,6 +49,26 @@ const pythonArgs = isWin && pythonCmd === "py" ? windowsVenvArgs() : ["-m", "ven
 if (!existsSync(venv)) {
   run(pythonCmd, pythonArgs);
 }
+
+// Preflight (Linux/macOS): some deps (insightface, stringzilla) compile C
+// extensions from source. Without the Python dev headers the install dies
+// MINUTES in, buried under a wall of g++ errors — check up front and give
+// the actionable one-liner instead.
+if (!isWin) {
+  const probe = spawnSync(pyBin, ["-c",
+    "import sysconfig,os,sys; sys.exit(0 if os.path.exists(os.path.join(sysconfig.get_paths()['include'],'Python.h')) else 1)",
+  ], { stdio: "ignore" });
+  if (probe.status !== 0) {
+    const verProbe = spawnSync(pyBin, ["-c", "import sys; print(f'{sys.version_info[0]}.{sys.version_info[1]}')"], { encoding: "utf8" });
+    const ver = (verProbe.stdout ?? "").trim() || "3.11";
+    console.error(`✗ Python ${ver} development headers missing (Python.h) — needed to build native deps.`);
+    console.error(`  Debian/Ubuntu:  sudo apt install -y python${ver}-dev build-essential`);
+    console.error(`  Fedora:         sudo dnf install -y python${ver}-devel gcc-c++`);
+    console.error(`  Then re-run this setup (or respawn the node).`);
+    process.exit(1);
+  }
+}
+
 // `python -m pip` (not pip.exe) — on Windows pip refuses to overwrite its
 // own running executable, so pip.exe install -U pip always fails there.
 run(pyBin, ["-m", "pip", "install", "-U", "pip"]);
