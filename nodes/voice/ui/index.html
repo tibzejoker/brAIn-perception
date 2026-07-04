@@ -195,8 +195,6 @@
   <div class="controls">
     <label for="device">Mic</label>
     <select id="device" disabled><option>loading…</option></select>
-    <label for="file" title="Absolute path of a video/audio file whose audio track is played as if it were the mic (demo/replay). Leave empty to use the mic.">🎬</label>
-    <input id="file" type="text" placeholder="media file path (optional)" style="width:210px" />
     <button id="start" class="primary" disabled>Start capture</button>
     <button id="stop" class="danger" disabled>Stop</button>
     <span class="hint" id="meta"></span>
@@ -269,7 +267,6 @@
 
     const els = {
       device: document.getElementById("device"),
-      file: document.getElementById("file"),
       start: document.getElementById("start"),
       stop: document.getElementById("stop"),
       reset: document.getElementById("reset"),
@@ -319,8 +316,7 @@
         const devs = await res.json();
         if (devs.length === 0) {
           els.device.innerHTML = `<option value="">no input devices</option>`;
-          setStatus("error", "no devices — media file still works");
-          els.start.disabled = false; // file mode needs no mic
+          setStatus("error", "no devices");
           return;
         }
         els.device.innerHTML = devs.map((d) =>
@@ -360,10 +356,9 @@
       try {
         const v = els.device.value;
         const device = v === "" ? null : Number(v);
-        const file = els.file.value.trim() || null;
         const res = await fetch(`${SERVER_URL}/api/capture/start`, {
           method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ device, session_id: "default", file }),
+          body: JSON.stringify({ device, session_id: "default" }),
         });
         if (!res.ok) {
           const err = await res.json().catch(() => ({ detail: "unknown" }));

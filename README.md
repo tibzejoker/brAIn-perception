@@ -5,6 +5,7 @@ Perception nodes for the [brAIn framework](https://github.com/tibzejoker/brAIn):
 - **`@brain/node-voice`** — local STT (faster-whisper) + speaker diarization (WeSpeaker), spawns its own Python server.
 - **`@brain/node-gaze`** — face detection + recognition (InsightFace) + gaze direction (Gazelle) + scene description (Moondream), spawns its own Python server.
 - **`@brain/node-intent`** — pure-TS correlator over `voice.transcript` + `gaze.target.resolved` bus events. Maintains a persons store linking voice ↔ gaze ↔ canonical name. Publishes `intent.detected` (every correlated utterance) and `intent.addressed` when a speaker addresses the AI (camera gaze) — the latter carries the conversation overheard since the last addressed exchange (capped via `INTENT_CONTEXT_MAX_UTTERANCES` / `INTENT_CONTEXT_MAX_CHARS`), so the brain wakes once, with context, instead of on every sentence.
+- **`@brain/node-media-source`** — virtual camera + microphone. One UI / one bus message (`media.play {file}`) plays a video into voice + gaze **in sync**, as if it were live input — no OS virtual-device drivers.
 - **`@brain/node-tts`** — text-to-speech. OS voices by default (say / espeak-ng / System.Speech), or the **Kokoro-82M neural voice** (`config_overrides.engine: "kokoro"`, pure ONNX in-process, ~86 MB auto-download). Subscribed to `chat.response` in the vocal-chat seed: the brain's replies are spoken out loud, and `tts.spoken` exposes the wav for replay/muxing.
 
 This repo is an extracted opinionated stack — the core brAIn engine
@@ -14,10 +15,11 @@ lives at [tibzejoker/brAIn](https://github.com/tibzejoker/brAIn).
 
 ```
 nodes/
-  voice/    # TS handler + ui/ + server/ (Python)
-  gaze/     # TS handler + ui/ + server/ (Python)
-  intent/   # pure TS handler + ui/
-  tts/      # TS handler (OS voices or Kokoro-82M ONNX)
+  voice/         # TS handler + ui/ + server/ (Python)
+  gaze/          # TS handler + ui/ + server/ (Python)
+  intent/        # pure TS handler + ui/
+  tts/           # TS handler (OS voices or Kokoro-82M ONNX)
+  media-source/  # virtual camera + mic (video file → voice+gaze in sync)
 seeds/
   voice.yaml gaze.yaml intent.yaml vocal-chat.yaml
 scripts/
@@ -59,12 +61,13 @@ curl -X POST localhost:8766/api/capture/start \
   -H 'content-type: application/json' -d '{"file": "/abs/path/demo.mp4", "fps": 6}'
 ```
 
-The node UIs (dashboard → voice / gaze → open UI) expose the same thing
-via the 🎬 file field next to the device selector: the gaze preview shows
-the video with live bounding boxes + gaze arrows, the voice UI streams
-the transcript. At EOF gaze holds the last frame (pass `"loop": true` to
-rewind forever) and voice appends 2 s of silence so the last utterance
-finalizes.
+The **media-source node** is the friendly face of this: open its UI in
+the dashboard, paste one file path, hit ▶ Play — it warms both servers
+and starts the two playbacks in sync, shows what the fake camera sees
+(the annotated gaze preview), and exposes the same control on the bus
+(`media.play` / `media.stop`) for scripted demos. At EOF gaze holds the
+last frame (`loop: true` to rewind forever) and voice appends 2 s of
+silence so the last utterance finalizes.
 
 Both servers also expose `POST /api/warmup` (load the ML models
 without starting a capture) so multi-source starts stay in sync.

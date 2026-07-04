@@ -18,6 +18,14 @@ nodes:
   # ── PERCEPTION ────────────────────────────────────────────────
   # voice + gaze keep their default subscriptions / publishes from each
   # node's config.json — no override needed.
+  # media-source is the virtual camera + mic: one UI to play a video
+  # file into both pipelines in sync (media.play / media.stop on the bus).
+  - type: media-source
+    name: media
+    description: "Virtual camera + mic. Plays a video file into voice + gaze as if it were live input."
+    priority: 5
+    position: { x: 40, y: 980 }
+
   - type: voice
     name: voice
     description: "Local STT + diarization. Mic → voice.transcript."

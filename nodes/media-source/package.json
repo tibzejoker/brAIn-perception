@@ -1,0 +1,29 @@
+{
+  "name": "@brain/node-media-source",
+  "version": "0.1.0",
+  "description": "brAIn node — virtual camera + microphone. Plays a video file into the voice & gaze pipelines in sync, as if it were live input. One UI, one file, one Play button.",
+  "license": "MIT",
+  "main": "dist/handler.js",
+  "types": "dist/handler.d.ts",
+  "files": [
+    "dist",
+    "config.json",
+    "ui",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "@brain/core": "workspace:*",
+    "@brain/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.4.0"
+  }
+}

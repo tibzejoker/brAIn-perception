@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>media-source — virtual camera + mic</title>
+  <style>
+    :root {
+      --bg: #0A0A0A; --surface: #111111; --elevated: #1A1A1A;
+      --border: #262626; --border-strong: #333333;
+      --text: #EDEDED; --text-dim: #A1A1A1; --text-muted: #707070;
+      --accent: #EDEDED; --accent-fg: #0A0A0A;
+      --danger: #F84E4E; --success: #4ADE80; --warning: #FBBF24;
+      --radius: 6px; --radius-sm: 4px;
+      --font-sans: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+      --font-mono: ui-monospace, 'JetBrains Mono', Menlo, monospace;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text);
+      font-family: var(--font-sans); font-size: 13px; line-height: 1.5; }
+    body { display: flex; flex-direction: column; }
+    button { background: var(--elevated); color: var(--text); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 6px 14px; font-size: 13px; cursor: pointer; }
+    button:hover { background: var(--border); }
+    button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+    button.danger { background: var(--danger); border-color: var(--danger); color: white; }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    input[type=text] { background: var(--surface); color: var(--text); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 6px 10px; font-size: 13px; outline: none; }
+    input[type=text]:focus { border-color: var(--accent); }
+
+    header { display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--surface); }
+    header h1 { font-size: 14px; margin: 0; }
+    .hint { font-size: 11px; color: var(--text-dim); }
+    .status { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px;
+      border-radius: 12px; background: var(--surface); border: 1px solid var(--border); font-size: 11px; }
+    .status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); }
+    .status.playing .dot { background: var(--success); }
+    .status.warming .dot { background: var(--warning); }
+    .status.ended .dot { background: var(--accent); }
+    .status.error .dot { background: var(--danger); }
+
+    .controls { display: flex; gap: 8px; align-items: center; padding: 10px 16px;
+      border-bottom: 1px solid var(--border); background: var(--surface); flex-wrap: wrap; }
+    .controls label { font-size: 11px; color: var(--text-dim); }
+    #file { flex: 1; min-width: 260px; }
+
+    main { flex: 1; display: grid; grid-template-columns: 1fr 300px; gap: 1px;
+      background: var(--border); min-height: 0; }
+    .pane { background: var(--bg); display: flex; flex-direction: column; min-height: 0; }
+    .pane h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
+      color: var(--text-dim); padding: 10px 14px; background: var(--surface);
+      border-bottom: 1px solid var(--border); margin: 0; }
+    .preview-wrap { flex: 1; display: flex; align-items: center; justify-content: center;
+      background: #000; padding: 12px; min-height: 0; }
+    .preview-wrap img { max-width: 100%; max-height: 100%; object-fit: contain;
+      border-radius: var(--radius-sm); border: 1px solid var(--border); }
+    .preview-wrap.empty { color: var(--text-muted); font-style: italic; }
+    .side { padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; overflow: auto; }
+    .chip { display: flex; justify-content: space-between; gap: 8px; padding: 8px 10px;
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+      font-size: 12px; }
+    .chip .k { color: var(--text-dim); }
+    .chip .v { font-family: var(--font-mono); font-size: 11px; text-align: right; word-break: break-all; }
+    .error-box { padding: 8px 10px; border: 1px solid var(--danger); border-radius: var(--radius);
+      color: var(--danger); font-size: 12px; display: none; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>media-source</h1>
+      <div class="hint">Virtual camera + microphone — plays a video into voice &amp; gaze as if it were live input.</div>
+    </div>
+    <div class="status" id="status"><span class="dot"></span><span id="status-text">idle</span></div>
+  </header>
+
+  <div class="controls">
+    <label for="file">🎬 Video</label>
+    <input id="file" type="text" placeholder="absolute path, e.g. C:\demos\scene.mp4 or /home/me/scene.mp4" />
+    <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer" title="Rewind at end of file instead of holding the last frame.">
+      <input id="loop" type="checkbox" />
+      <span class="hint">loop</span>
+    </label>
+    <button id="play" class="primary">▶ Play</button>
+    <button id="stop" class="danger" disabled>■ Stop</button>
+  </div>
+
+  <main>
+    <div class="pane">
+      <h2>What the camera sees</h2>
+      <div class="preview-wrap empty" id="preview"><span>Idle — pick a video and hit Play</span></div>
+    </div>
+    <div class="pane">
+      <h2>Pipelines</h2>
+      <div class="side">
+        <div class="error-box" id="error"></div>
+        <div class="chip"><span class="k">state</span><span class="v" id="c-state">idle</span></div>
+        <div class="chip"><span class="k">file</span><span class="v" id="c-file">—</span></div>
+        <div class="chip"><span class="k">voice (mic)</span><span class="v" id="c-voice">—</span></div>
+        <div class="chip"><span class="k">gaze (camera)</span><span class="v" id="c-gaze">—</span></div>
+        <div class="hint">The video's audio feeds STT + diarization; its frames feed
+          face + gaze tracking. Everything downstream (intent, brain, tts)
+          behaves exactly as with a real webcam and microphone.</div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    const apiBase = window.location.origin;
+    const nodeId = window.location.pathname.split("/node/")[1]?.split("/ui")[0] ?? "";
+    const GAZE_URL = "http://localhost:8766";
+
+    const els = {
+      file: document.getElementById("file"),
+      loop: document.getElementById("loop"),
+      play: document.getElementById("play"),
+      stop: document.getElementById("stop"),
+      status: document.getElementById("status"),
+      statusText: document.getElementById("status-text"),
+      preview: document.getElementById("preview"),
+      error: document.getElementById("error"),
+      cState: document.getElementById("c-state"),
+      cFile: document.getElementById("c-file"),
+      cVoice: document.getElementById("c-voice"),
+      cGaze: document.getElementById("c-gaze"),
+    };
+
+    els.file.value = localStorage.getItem("media-source:file") ?? "";
+    let previewTimer = null;
+
+    function setStatus(state, text) {
+      els.status.className = `status ${state}`;
+      els.statusText.textContent = text;
+      els.cState.textContent = state;
+      const busy = state === "playing" || state === "warming";
+      els.play.disabled = state === "warming";
+      els.stop.disabled = !busy && state !== "ended";
+      if (state === "playing") startPreview(); else if (state === "idle" || state === "error") stopPreview();
+    }
+
+    function startPreview() {
+      if (previewTimer) return;
+      const refresh = () => {
+        if (els.preview.classList.contains("empty")) {
+          els.preview.innerHTML = `<img id="preview-img" alt="preview" />`;
+          els.preview.classList.remove("empty");
+        }
+        const img = document.getElementById("preview-img");
+        if (img) img.src = `${GAZE_URL}/api/capture/preview.jpg?t=${Date.now()}`;
+      };
+      refresh();
+      previewTimer = setInterval(refresh, 250);
+    }
+    function stopPreview() {
+      if (previewTimer) { clearInterval(previewTimer); previewTimer = null; }
+      els.preview.innerHTML = `<span>Idle — pick a video and hit Play</span>`;
+      els.preview.classList.add("empty");
+    }
+
+    async function publish(topic, body) {
+      const res = await fetch(`${apiBase}/node/${nodeId}/${topic}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body ?? {}),
+      });
+      if (!res.ok) throw new Error(`${topic} → HTTP ${res.status}`);
+    }
+
+    els.play.onclick = async () => {
+      const file = els.file.value.trim();
+      if (!file) { els.file.focus(); return; }
+      localStorage.setItem("media-source:file", file);
+      setStatus("warming", "warming models…");
+      try { await publish("media.play", { file, loop: els.loop.checked }); }
+      catch (e) { setStatus("error", e.message); }
+    };
+    els.stop.onclick = async () => {
+      try { await publish("media.stop", {}); } catch {}
+    };
+
+    // State comes back on the bus: poll the network history for the latest
+    // media.status from THIS node (the same pattern the chat UI uses).
+    async function poll() {
+      try {
+        const res = await fetch(`${apiBase}/network/messages?topic=media.status&from=${nodeId}&last=1`);
+        if (!res.ok) return;
+        const msgs = await res.json();
+        const m = msgs[msgs.length - 1];
+        if (!m) return;
+        const s = m.metadata ?? {};
+        const labels = {
+          idle: "idle", warming: "warming models…",
+          playing: `playing — ${String(s.file ?? "").split(/[\\/]/).pop()}`,
+          ended: "ended (gaze holds last frame)", error: "error",
+        };
+        setStatus(s.state ?? "idle", labels[s.state] ?? s.state);
+        els.cFile.textContent = s.file ? String(s.file).split(/[\\/]/).pop() : "—";
+        els.cVoice.textContent = s.voice ? (s.voice.ended ? "ended" : s.voice.running ? "listening" : "idle") : "—";
+        els.cGaze.textContent = s.gaze ? (s.gaze.ended ? `ended` : s.gaze.running ? `capturing` : "idle") : "—";
+        if (s.state === "error" && s.error) {
+          els.error.textContent = s.error;
+          els.error.style.display = "block";
+        } else {
+          els.error.style.display = "none";
+        }
+      } catch { /* api unreachable — keep last state */ }
+    }
+    setInterval(poll, 1000);
+    publish("media.status.request", {}).catch(() => {});
+    poll();
+  </script>
+</body>
+</html>

@@ -1,0 +1,67 @@
+{
+  "name": "media-source",
+  "description": "Virtual camera + microphone. Plays a video file into the voice & gaze pipelines in sync — the whole perception stack behaves exactly as with live devices. One UI, one file, one Play button; also drivable over the bus (media.play / media.stop) for scripted demos.",
+  "tags": [
+    "service",
+    "media",
+    "replay",
+    "perception"
+  ],
+  "default_authority": 1,
+  "default_priority": 5,
+  "ports": {
+    "inputs": {
+      "media.play": {
+        "description": "Play a video file as camera + mic. Payload: {file: absolute path, loop?: boolean}. Warms both perception servers first so playback starts in sync.",
+        "inputSchema": {
+          "type": "object",
+          "required": ["file"],
+          "properties": {
+            "file": {
+              "type": "string",
+              "description": "Absolute path of the video file on the host running the perception servers."
+            },
+            "loop": {
+              "type": "boolean",
+              "description": "Rewind the video at EOF instead of holding the last frame (gaze side)."
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "media.stop": {
+        "description": "Stop playback on both servers and return them to idle.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        }
+      },
+      "media.status.request": {
+        "description": "Ask for an immediate media.status snapshot.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        }
+      }
+    },
+    "outputs": {
+      "media.status": {
+        "description": "Playback state: {state: idle|warming|playing|ended|error, file, loop, voice: {...}, gaze: {...}}. Published on transitions and on request."
+      }
+    }
+  },
+  "default_port_bindings": {
+    "inputs": {
+      "media.play": ["media.play"],
+      "media.stop": ["media.stop"],
+      "media.status.request": ["media.status.request"]
+    },
+    "outputs": {
+      "media.status": ["media.status"]
+    }
+  },
+  "has_ui": true,
+  "supports_transport": ["process"]
+}
