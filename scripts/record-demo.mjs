@@ -2,8 +2,9 @@
 /**
  * Screen-record the perception demo into a shareable mp4, sound included.
  *
- * Opens the gaze + voice + chat node UIs in a composed scene
- * (scripts/demo-scene.html), resets the chat, plays the demo video as
+ * Films the REAL dashboard: opens the network graph, expands the gaze,
+ * voice and chat cards in place (their UIs render inside the graph, the
+ * bus edges stay visible), resets the chat, plays the demo video as
  * camera + mic on both Python servers, waits for the brain's reply (and
  * its Kokoro playback when a tts node is live), then muxes the demo
  * video's audio — plus the AI's spoken wav — into the capture at the
@@ -16,9 +17,9 @@
  *
  * Usage:
  *   node scripts/record-demo.mjs [videoPath]
- * Env: API_PORT, VOICE_URL, GAZE_URL, DEMO_OUT (output mp4 path)
+ * Env: API_PORT, VOICE_URL, GAZE_URL, DASHBOARD_URL (default :5173),
+ *      DEMO_OUT (output mp4 path)
  */
-import { readFileSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -62,10 +63,7 @@ const gazeId = idOf("gaze"), voiceId = idOf("voice"), chatId = idOf("chat");
 if (!gazeId || !voiceId || !chatId) {
   throw new Error(`vocal-chat topology not live (gaze=${gazeId} voice=${voiceId} chat=${chatId}) — apply the seed first`);
 }
-const scene = readFileSync(resolve(here, "demo-scene.html"), "utf8")
-  .replace("GAZE_ID", gazeId).replace("VOICE_ID", voiceId).replace("CHAT_ID", chatId);
-const scenePath = resolve(here, "demo-scene.live.html");
-writeFileSync(scenePath, scene);
+const DASHBOARD = process.env.DASHBOARD_URL ?? "http://localhost:5173";
 
 // 2. Clean slate: stop any running captures; reset the chat thread + brain
 // state. Double reset with a settle gap: the first reset can wake the brain
@@ -99,9 +97,48 @@ const page = await context.newPage();
 // AUDIO track can be muxed into the capture at the right offset afterwards
 // (Playwright records video only, no sound).
 const recStartMs = Date.now();
-await page.goto(`file://${scenePath.replace(/\\/g, "/")}`);
-log("scene open — letting UIs settle");
-await page.waitForTimeout(6000);
+await page.goto(DASHBOARD);
+log("dashboard open — waiting for the graph");
+await page.locator(".react-flow__node").first().waitFor({ timeout: 30_000 });
+await page.waitForTimeout(1500);
+
+// Expand the three cards whose UIs tell the story: gaze (the video +
+// gaze arrows), voice (transcript), chat (the reply). In-place expansion
+// is the dashboard's own feature — several cards can be open at once,
+// with the network graph and its edges staying visible around them.
+// Each card is then drag-resized via its NodeResizer handle: the default
+// 480x360 shows the embedded UI's header but crops the interesting part
+// (the gaze preview, the transcript).
+const cardFor = (name) => page.locator(".react-flow__node")
+  .filter({ has: page.getByText(name, { exact: true }) }).first();
+
+async function resizeCard(card, dx, dy) {
+  const handle = card.locator(".react-flow__resize-control").last();
+  const hb = await handle.boundingBox();
+  if (!hb) throw new Error("no resize handle");
+  await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(hb.x + hb.width / 2 + dx, hb.y + hb.height / 2 + dy, { steps: 10 });
+  await page.mouse.up();
+}
+
+const GROW = { gaze: [420, 330], voice: [320, 60], human: [140, 300] };
+for (const name of ["gaze", "voice", "human"]) {
+  try {
+    const card = cardFor(name);
+    await card.locator('[title="Expand UI in place"]').click({ timeout: 5_000 });
+    await page.waitForTimeout(500);
+    const [dx, dy] = GROW[name];
+    await resizeCard(card, dx, dy);
+    await page.waitForTimeout(300);
+  } catch (e) {
+    log(`could not expand/resize "${name}" (${e.message}) — continuing`);
+  }
+}
+// Frame the whole network.
+try { await page.locator(".react-flow__controls-fitview").click({ timeout: 3_000 }); } catch { /* controls hidden */ }
+log("cards expanded — letting UIs settle");
+await page.waitForTimeout(5000);
 
 // 4. Roll the video on both servers.
 const t0 = Date.now();

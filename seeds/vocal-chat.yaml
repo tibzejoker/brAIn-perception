@@ -22,13 +22,13 @@ nodes:
     name: voice
     description: "Local STT + diarization. Mic → voice.transcript."
     priority: 5
-    position: { x: 50, y: 200 }
+    position: { x: 40, y: 520 }
 
   - type: gaze
     name: gaze
     description: "Face detection + gaze direction. Cam → gaze.target.resolved."
     priority: 5
-    position: { x: 50, y: 400 }
+    position: { x: 40, y: 60 }
 
   # ── CORRELATION ───────────────────────────────────────────────
   # intent's defaults already cover voice.transcript + gaze.target.resolved
@@ -37,7 +37,7 @@ nodes:
     name: intent
     description: "Pairs voice utterances with gaze targets. Emits intent.detected on the bus."
     priority: 5
-    position: { x: 400, y: 300 }
+    position: { x: 620, y: 620 }
 
   # ── CONSCIOUSNESS ─────────────────────────────────────────────
   # Subscribes to intent.addressed — fired only when a speaker addresses
@@ -49,7 +49,7 @@ nodes:
     name: consciousness
     description: "LLM brain. Hears intent.addressed (spoken to it, with overheard context) + chat.input (typed); replies on chat.response."
     priority: 10
-    position: { x: 800, y: 300 }
+    position: { x: 940, y: 620 }
     subscriptions:
       - topic: "brain.*"
       - topic: "intent.addressed"
@@ -70,7 +70,7 @@ nodes:
     name: human
     description: "Keyboard chat + transcript viewer. Type to talk to the brain; spoken utterances surface here too."
     priority: 5
-    position: { x: 800, y: 100 }
+    position: { x: 620, y: 60 }
     subscriptions:
       - topic: "chat.response"
       - topic: "intent.detected"
@@ -83,7 +83,7 @@ nodes:
     name: voice-out
     description: "Kokoro TTS. Speaks the brain's chat.response replies aloud; emits tts.spoken with the wav path."
     priority: 5
-    position: { x: 1100, y: 300 }
+    position: { x: 1260, y: 620 }
     subscriptions:
       - topic: "tts.speak"
       - topic: "tts.cancel"
