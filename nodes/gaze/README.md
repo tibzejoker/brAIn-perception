@@ -62,6 +62,13 @@ curl -X POST http://localhost:8766/api/capture/start \
   -H 'content-type: application/json' \
   -d '{"device": 0, "fps": 6}'
 
+# Play a video file AS the camera (demo/replay — native-fps pacing; holds the
+# last frame at EOF, or pass "loop": true to rewind forever)
+curl -X POST http://localhost:8766/api/capture/start   -H 'content-type: application/json'   -d '{"file": "/abs/path/demo.mp4", "fps": 6}'
+
+# Pre-load the ML models without opening a capture (sync with other sources)
+curl -X POST http://localhost:8766/api/warmup
+
 # Latest annotated frame (bboxes + gaze arrows + labels drawn server-side)
 curl http://localhost:8766/api/capture/preview.jpg -o preview.jpg
 

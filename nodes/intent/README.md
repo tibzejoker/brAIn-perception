@@ -3,7 +3,8 @@
 **"Who is talking to whom?"** — pure-TypeScript brAIn node that listens to
 the bus events emitted by the `voice` and `gaze` nodes, correlates speech
 segments with the speaker's gaze direction over a short sliding window,
-and publishes a structured `intent.detected` per finalized utterance.
+and publishes a structured `intent.detected` per finalized utterance —
+plus `intent.addressed` when the speaker addresses the AI itself.
 
 ```
                     ┌──────────── brAIn bus ────────────┐
@@ -12,9 +13,42 @@ voice node   ──────►│ voice.transcript                  │
 gaze node    ──────►│ gaze.target.resolved              │──────►  intent node
                     │                                   │            │
                     │                                   │◄───────────┤
-                    │ intent.detected                   │   correlator
+                    │ intent.detected    (every utterance → chat)    │
+                    │ intent.addressed   (spoke to the AI → brain)   │
                     └───────────────────────────────────┘
 ```
+
+## Addressed to the AI: `intent.addressed`
+
+Humans talking among themselves should not wake the LLM. Every
+correlated utterance goes out on `intent.detected` (the chat renders
+them as reported speech) and accumulates in a context buffer. When an
+utterance targets the **camera** — dominant gaze vote, or at least
+`camera_min_fraction` (0.4) of the speech window spent looking at the
+lens — the node publishes `intent.addressed`:
+
+```jsonc
+{
+  "question": { /* the addressed intent record */ },
+  "context":  [ { "speaker": "Alex", "target_kind": "person",
+                  "target_name": "Sam", "text": "…" }, … ],
+  "dropped_utterances": 0,
+  "camera_overlap_s": 2.9
+}
+```
+
+`context` is the conversation overheard **since the last addressed
+exchange**, most recent kept, capped by `INTENT_CONTEXT_MAX_UTTERANCES`
+(20) and `INTENT_CONTEXT_MAX_CHARS` (1500). The buffer resets after
+each dispatch. The brain subscribes to this topic (see the vocal-chat
+seed): it wakes once, with the whole exchange as context, instead of on
+every sentence.
+
+Correlation itself is **deferred** by `INTENT_CORRELATE_DEFER_MS`
+(3000) after a segment arrives — gaze frames clear the analysis queue a
+beat after the speech they belong to — and **retro-runs** whenever a
+person is created or updated, so the utterance that triggered an
+enrollment is never lost.
 
 ## Why pure TS
 
@@ -89,4 +123,5 @@ the node is killed (heartbeat + onTeardown — same pattern as voice/gaze).
 
 **Publishes:**
 - `intent.detected` — one per correlated voice segment
+- `intent.addressed` — question + overheard-context delta when a speaker addresses the AI (camera gaze)
 - `intent.persons.changed` — `{kind, person}` after CRUD changes

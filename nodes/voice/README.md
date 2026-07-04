@@ -77,6 +77,13 @@ curl -X POST http://localhost:8765/api/capture/start \
   -H 'content-type: application/json' \
   -d '{"device": null, "session_id": "default"}'
 
+# Play a media file's audio track AS the mic (demo/replay — real-time pace,
+# 2 s silence tail so the VAD finalizes the last utterance)
+curl -X POST http://localhost:8765/api/capture/start   -H 'content-type: application/json'   -d '{"file": "/abs/path/demo.mp4"}'
+
+# Pre-load the ML models without opening a capture (sync with other sources)
+curl -X POST http://localhost:8765/api/warmup
+
 # Stop
 curl -X POST http://localhost:8765/api/capture/stop
 
@@ -93,13 +100,3 @@ the **parent** process (Terminal.app, iTerm, VSCode, …) — not Python itself.
 If the prompt is dismissed or never appears, grant access manually under
 **System Settings → Privacy & Security → Microphone**. If you switch
 terminals, you'll be asked again for the new parent.
-
-## Status
-
-- [x] Phase 1 — Server scaffold + mic→WS echo pipeline (stub engine)
-- [x] Phase 2 — Engine: Silero VAD + faster-whisper + WeSpeaker embedding
-  (`VOICE_ENGINE=real`, non-gated models, ~200 MB)
-- [x] Phase 3 — Identity: SQLite profiles + cosine match w/ EMA centroids
-- [x] Phase 4 — Server-side local capture (sounddevice → engine direct)
-- [x] Phase 5 — brAIn integration: spawn-anti-orphan + dashboard UI
-- [ ] Future — swap `VadSttEngine` for Streaming Sortformer (4090 target)
