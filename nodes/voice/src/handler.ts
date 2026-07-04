@@ -33,7 +33,15 @@ let bridgeEpoch = 0;
  * pip + model download progress in the brAIn API console.
  */
 function ensureSetup(): void {
-  if (existsSync(VENV_PYTHON)) return;
+  // The COMPLETION MARKER, not the python binary, is the "installed"
+  // signal: a venv whose pip install died half-way (missing headers,
+  // network drop) still has python.exe and would otherwise never retry —
+  // the server would crash-loop on missing deps forever.
+  // Setup is idempotent: a healthy pre-marker venv re-runs it once
+  // (~a minute of already-satisfied pip checks), gains the marker, and
+  // never pays again.
+  const marker = path.join(SERVER_DIR, ".venv", ".brain-setup-complete");
+  if (existsSync(marker)) return;
   // perception-root = nodes/voice/dist/.. → nodes/voice/.. → nodes/.. → root
   const setupScript = path.resolve(__dirname, "..", "..", "..", "scripts", "setup-py.mjs");
   if (!existsSync(setupScript)) {

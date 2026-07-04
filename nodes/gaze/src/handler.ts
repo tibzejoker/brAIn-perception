@@ -33,7 +33,13 @@ let pollerEpoch = 0;
  * piped to stdout so the user sees the progress in the API console.
  */
 function ensureSetup(): void {
-  if (existsSync(VENV_PYTHON)) return;
+  // The COMPLETION MARKER, not the python binary, is the "installed"
+  // signal: a venv whose pip install died half-way (missing headers,
+  // network drop) still has python and would otherwise never retry — the
+  // server would crash-loop on missing deps forever. Setup is idempotent:
+  // a healthy pre-marker venv re-runs it once, gains the marker, done.
+  const marker = path.join(SERVER_DIR, ".venv", ".brain-setup-complete");
+  if (existsSync(marker)) return;
   const setupScript = path.resolve(__dirname, "..", "..", "..", "scripts", "setup-py.mjs");
   if (!existsSync(setupScript)) {
     throw new Error(`gaze: venv missing and setup-py.mjs not found at ${setupScript}`);

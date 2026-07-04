@@ -9,7 +9,7 @@
  * Usage: node scripts/setup-py.mjs <node>   (node = voice | gaze)
  */
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { resolve, join } from "node:path";
 
 const node = process.argv[2];
@@ -74,4 +74,9 @@ if (!isWin) {
 run(pyBin, ["-m", "pip", "install", "-U", "pip"]);
 run(pyBin, ["-m", "pip", "install", "-r", "requirements.txt"]);
 run(pyBin, ["-m", "app.setup_models"]);
+// Completion marker — the node handlers check THIS, not the venv's python
+// binary: a venv whose pip install died half-way (missing headers, network
+// drop) would otherwise look "installed" forever and the server would just
+// crash-loop on missing deps until someone manually deletes .venv.
+writeFileSync(join(venv, ".brain-setup-complete"), new Date().toISOString() + "\n");
 console.log(`✓ ${node} python env ready at ${venv}`);
