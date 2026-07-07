@@ -332,25 +332,73 @@
     applySide(localStorage.getItem("voice:side-collapsed") === "1");
 
     // ── Devices + capture control ──────────────────────────────────────
+    // The media-source node shows up in the device list as a virtual
+    // microphone: selecting it and hitting Start plays its video into BOTH
+    // pipelines (media.play warms voice + gaze and starts them in sync).
+    const MEDIA_DEVICE = "__media__";
+    const apiBase = window.location.origin;
+    let mediaNodeId = null;
+
+    async function findMediaNode() {
+      try {
+        const res = await fetch(`${apiBase}/nodes`);
+        if (!res.ok) return null;
+        const nodes = await res.json();
+        return nodes.find((n) => n.type === "media-source" && n.state !== "dead")?.id ?? null;
+      } catch { return null; }
+    }
+
     async function loadDevices() {
+      let opts = [];
       try {
         const res = await fetch(`${SERVER_URL}/api/capture/devices`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const devs = await res.json();
-        if (devs.length === 0) {
-          els.device.innerHTML = `<option value="">no input devices</option>`;
-          setStatus("error", "no devices");
-          return;
-        }
-        els.device.innerHTML = devs.map((d) =>
+        opts = devs.map((d) =>
           `<option value="${d.id}">${escapeHtml(d.name)} (id=${d.id}, ${d.max_input_channels}ch)</option>`
-        ).join("");
-        els.device.disabled = false;
-        els.start.disabled = false;
+        );
       } catch (e) {
         els.device.innerHTML = `<option value="">server unreachable</option>`;
         setStatus("error", `server unreachable (${e.message})`);
+        return;
       }
+      mediaNodeId = await findMediaNode();
+      if (mediaNodeId) opts.push(`<option value="${MEDIA_DEVICE}">🎬 media (virtual audio source)</option>`);
+      if (opts.length === 0) {
+        els.device.innerHTML = `<option value="">no input devices</option>`;
+        setStatus("error", "no devices");
+        return;
+      }
+      els.device.innerHTML = opts.join("");
+      els.device.disabled = false;
+      els.start.disabled = false;
+    }
+
+    /** Last file the media node played (bus history), else the one its UI
+     *  remembered (same-origin localStorage) — the picker lives over there. */
+    async function mediaFile() {
+      try {
+        const res = await fetch(`${apiBase}/network/messages?topic=media.status&from=${mediaNodeId}&last=1`);
+        if (res.ok) {
+          const meta = (await res.json()).at(-1)?.metadata;
+          if (meta?.file) return { file: meta.file, loop: meta.loop === true };
+        }
+      } catch {}
+      const file = localStorage.getItem("media-source:file");
+      return file ? { file, loop: false } : null;
+    }
+
+    async function startFromMedia() {
+      mediaNodeId ??= await findMediaNode();
+      if (!mediaNodeId) throw new Error("no media-source node on the network");
+      const picked = await mediaFile();
+      if (!picked) throw new Error("no video picked yet — open the media node UI and choose a file");
+      setStatus("listening", "media source warming up…");
+      const res = await fetch(`${apiBase}/node/${mediaNodeId}/media.play`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify(picked),
+      });
+      if (!res.ok) throw new Error(`media.play → HTTP ${res.status}`);
     }
 
     async function refreshStatus() {
@@ -362,6 +410,15 @@
           const src = s.source === "file"
             ? `media ${String(s.file || "").split(/[\\/]/).pop()}`
             : `device ${s.device}`;
+          // Reflect the real source in the dropdown: file capture means the
+          // virtual media device is the active "microphone".
+          if (document.activeElement !== els.device) {
+            if (s.source === "file" && els.device.querySelector(`option[value="${MEDIA_DEVICE}"]`)) {
+              els.device.value = MEDIA_DEVICE;
+            } else if (s.source !== "file" && els.device.value === MEDIA_DEVICE && s.device != null) {
+              els.device.value = String(s.device);
+            }
+          }
           setStatus("listening", `listening — ${src}`);
           els.start.disabled = true; els.stop.disabled = false;
           els.meta.textContent = s.dropped_frames > 0 ? `dropped ${s.dropped_frames}` : "";
@@ -377,6 +434,10 @@
     async function start() {
       els.start.disabled = true;
       try {
+        if (els.device.value === MEDIA_DEVICE) {
+          await startFromMedia();
+          return; // status flips via polling once warmup + playback begin
+        }
         const v = els.device.value;
         const device = v === "" ? null : Number(v);
         const res = await fetch(`${SERVER_URL}/api/capture/start`, {
@@ -397,7 +458,19 @@
 
     async function stop() {
       els.stop.disabled = true;
-      try { await fetch(`${SERVER_URL}/api/capture/stop`, { method: "POST" }); } catch {}
+      // Stopping the virtual media device stops it everywhere (gaze too),
+      // like unplugging the device; direct server stop otherwise.
+      let viaMedia = false;
+      try {
+        const s = await (await fetch(`${SERVER_URL}/api/capture/status`)).json();
+        if (s?.source === "file" && (mediaNodeId ??= await findMediaNode())) {
+          const res = await fetch(`${apiBase}/node/${mediaNodeId}/media.stop`, {
+            method: "POST", headers: { "content-type": "application/json" }, body: "{}",
+          });
+          viaMedia = res.ok;
+        }
+      } catch {}
+      if (!viaMedia) { try { await fetch(`${SERVER_URL}/api/capture/stop`, { method: "POST" }); } catch {} }
       await refreshStatus();
     }
 
