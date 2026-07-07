@@ -9,6 +9,9 @@
  *
  * Pure TS — no server of its own; it drives the voice/gaze HTTP APIs.
  */
+import { readdir } from "node:fs/promises";
+import { homedir } from "node:os";
+import { dirname, extname, join } from "node:path";
 import { BrainService, logger } from "@brain/core";
 import type { Message, NodeHandler, NodeInfo, NodeOnSpawn, NodeTeardown } from "@brain/sdk";
 
@@ -137,6 +140,44 @@ async function play(file: string, loop: boolean): Promise<void> {
   startPolling();
 }
 
+const VIDEO_EXTS = new Set([".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v", ".mpg", ".mpeg", ".wmv", ".ts"]);
+
+/**
+ * List a directory for the UI's file picker — dirs + video files only.
+ * Runs on the machine hosting the node, which is by construction the
+ * machine whose paths `media.play` needs, so remote-hosted nodes browse
+ * the right disk.
+ */
+async function browse(dir: string, req: string | null): Promise<void> {
+  const bus = BrainService.current?.bus;
+  if (!bus || !nodeId) return;
+  let entries: Array<{ name: string; path: string; kind: "dir" | "file" }> = [];
+  let error: string | null = null;
+  try {
+    const items = await readdir(dir, { withFileTypes: true });
+    entries = items
+      .filter((e) => !e.name.startsWith("."))
+      .filter((e) => e.isDirectory() || VIDEO_EXTS.has(extname(e.name).toLowerCase()))
+      .map((e) => ({
+        name: e.name,
+        path: join(dir, e.name),
+        kind: e.isDirectory() ? ("dir" as const) : ("file" as const),
+      }))
+      .sort((a, b) => (a.kind === b.kind ? a.name.localeCompare(b.name) : a.kind === "dir" ? -1 : 1));
+  } catch (err) {
+    error = err instanceof Error ? err.message : String(err);
+  }
+  const parent = dirname(dir);
+  bus.publish({
+    from: nodeId,
+    topic: "media.files",
+    type: "text",
+    criticality: 1,
+    payload: { content: `media: listed ${dir} (${entries.length} entries)` },
+    metadata: { req, dir, parent: parent !== dir ? parent : null, entries, error },
+  });
+}
+
 async function stop(): Promise<void> {
   stopPolling();
   await Promise.allSettled([
@@ -190,6 +231,12 @@ export const handler: NodeHandler = async (ctx) => {
     }
     if (msg.topic === "media.stop") {
       await stop();
+      continue;
+    }
+    if (msg.topic === "media.browse") {
+      const p = payloadOf(msg);
+      const dir = typeof p.dir === "string" && p.dir.trim() ? p.dir.trim() : homedir();
+      await browse(dir, typeof p.req === "string" ? p.req : null);
       continue;
     }
     if (msg.topic === "media.status.request") {

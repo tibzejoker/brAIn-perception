@@ -44,11 +44,31 @@
           "properties": {},
           "additionalProperties": false
         }
+      },
+      "media.browse": {
+        "description": "List a directory on the host running the node (directories + video files only), for picking a file to play. Answers on media.files.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "dir": {
+              "type": "string",
+              "description": "Absolute directory to list. Omit or empty for the host's home directory."
+            },
+            "req": {
+              "type": "string",
+              "description": "Opaque request token echoed back in media.files, so a caller can match its answer."
+            }
+          },
+          "additionalProperties": false
+        }
       }
     },
     "outputs": {
       "media.status": {
         "description": "Playback state: {state: idle|warming|playing|ended|error, file, loop, voice: {...}, gaze: {...}}. Published on transitions and on request."
+      },
+      "media.files": {
+        "description": "Answer to media.browse: {req, dir, parent, entries: [{name, path, kind: dir|file}], error}."
       }
     }
   },
@@ -56,10 +76,12 @@
     "inputs": {
       "media.play": ["media.play"],
       "media.stop": ["media.stop"],
-      "media.status.request": ["media.status.request"]
+      "media.status.request": ["media.status.request"],
+      "media.browse": ["media.browse"]
     },
     "outputs": {
-      "media.status": ["media.status"]
+      "media.status": ["media.status"],
+      "media.files": ["media.files"]
     }
   },
   "has_ui": true,

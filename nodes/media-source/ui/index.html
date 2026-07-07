@@ -70,6 +70,23 @@
     .side-toggle:hover { color: var(--text); background: var(--elevated); }
     body.side-collapsed main { grid-template-columns: 1fr; }
     body.side-collapsed main .pane:last-child { display: none; }
+
+    .picker-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+      display: none; align-items: center; justify-content: center; z-index: 10; }
+    .picker-overlay.open { display: flex; }
+    .picker { width: min(560px, 90vw); max-height: 70vh; display: flex; flex-direction: column;
+      background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius); }
+    .picker header { border-radius: var(--radius) var(--radius) 0 0; gap: 8px; }
+    .picker .dir { flex: 1; font-family: var(--font-mono); font-size: 11px; color: var(--text-dim);
+      word-break: break-all; }
+    .picker .list { flex: 1; overflow: auto; padding: 6px; }
+    .picker .entry { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+      background: transparent; border: none; border-radius: var(--radius-sm); padding: 6px 8px;
+      font-size: 12px; color: var(--text); cursor: pointer; }
+    .picker .entry:hover { background: var(--elevated); }
+    .picker .entry .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .picker .empty-list { padding: 16px; color: var(--text-muted); font-style: italic; font-size: 12px; }
+    .picker .picker-error { padding: 10px 12px; color: var(--danger); font-size: 12px; }
   </style>
 </head>
 <body>
@@ -84,6 +101,7 @@
   <div class="controls">
     <label for="file">🎬 Video</label>
     <input id="file" type="text" placeholder="absolute path, e.g. C:\demos\scene.mp4 or /home/me/scene.mp4" />
+    <button id="browse" title="Browse the disk of the machine hosting this node">📂 Browse</button>
     <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer" title="Rewind at end of file instead of holding the last frame.">
       <input id="loop" type="checkbox" />
       <span class="hint">loop</span>
@@ -112,6 +130,17 @@
       </div>
     </div>
   </main>
+
+  <div class="picker-overlay" id="picker-overlay">
+    <div class="picker">
+      <header>
+        <button id="picker-up" title="Parent directory">↑</button>
+        <span class="dir" id="picker-dir">…</span>
+        <button id="picker-close">✕</button>
+      </header>
+      <div class="list" id="picker-list"><div class="empty-list">Loading…</div></div>
+    </div>
+  </div>
 
   <script>
     const apiBase = window.location.origin;
@@ -195,6 +224,77 @@
     els.stop.onclick = async () => {
       try { await publish("media.stop", {}); } catch {}
     };
+
+    // File picker: the node lists directories of ITS host (media.browse on
+    // the bus, answer on media.files) so the paths are valid where the
+    // perception servers actually run, even for a remote-hosted node.
+    const picker = {
+      overlay: document.getElementById("picker-overlay"),
+      dir: document.getElementById("picker-dir"),
+      list: document.getElementById("picker-list"),
+      up: document.getElementById("picker-up"),
+      close: document.getElementById("picker-close"),
+      req: null,
+      parent: null,
+    };
+
+    async function browseDir(dir) {
+      picker.req = Math.random().toString(36).slice(2);
+      picker.list.innerHTML = `<div class="empty-list">Loading…</div>`;
+      const req = picker.req;
+      try { await publish("media.browse", { dir: dir ?? "", req }); }
+      catch (e) { picker.list.innerHTML = `<div class="picker-error">${e.message}</div>`; return; }
+      for (let i = 0; i < 40 && picker.req === req; i++) {
+        await new Promise((r) => setTimeout(r, 250));
+        try {
+          const res = await fetch(`${apiBase}/network/messages?topic=media.files&from=${nodeId}&last=1`);
+          if (!res.ok) continue;
+          const msgs = await res.json();
+          const meta = msgs[msgs.length - 1]?.metadata;
+          if (meta?.req !== req || picker.req !== req) continue;
+          renderListing(meta);
+          return;
+        } catch { /* api hiccup — keep waiting */ }
+      }
+      if (picker.req === req) picker.list.innerHTML = `<div class="picker-error">No answer from the node — is it running?</div>`;
+    }
+
+    function renderListing(meta) {
+      picker.dir.textContent = meta.dir;
+      picker.parent = meta.parent;
+      picker.up.disabled = !meta.parent;
+      localStorage.setItem("media-source:dir", meta.dir);
+      if (meta.error) { picker.list.innerHTML = `<div class="picker-error"></div>`;
+        picker.list.firstChild.textContent = meta.error; return; }
+      if (!meta.entries?.length) { picker.list.innerHTML = `<div class="empty-list">No folders or videos here</div>`; return; }
+      picker.list.innerHTML = "";
+      for (const entry of meta.entries) {
+        const btn = document.createElement("button");
+        btn.className = "entry";
+        const icon = document.createElement("span");
+        icon.textContent = entry.kind === "dir" ? "📁" : "🎬";
+        const name = document.createElement("span");
+        name.className = "name";
+        name.textContent = entry.name;
+        btn.append(icon, name);
+        btn.onclick = () => {
+          if (entry.kind === "dir") { browseDir(entry.path); return; }
+          els.file.value = entry.path;
+          localStorage.setItem("media-source:file", entry.path);
+          closePicker();
+        };
+        picker.list.appendChild(btn);
+      }
+    }
+
+    function closePicker() { picker.overlay.classList.remove("open"); picker.req = null; }
+    document.getElementById("browse").onclick = () => {
+      picker.overlay.classList.add("open");
+      browseDir(localStorage.getItem("media-source:dir") ?? "");
+    };
+    picker.up.onclick = () => { if (picker.parent) browseDir(picker.parent); };
+    picker.close.onclick = closePicker;
+    picker.overlay.onclick = (e) => { if (e.target === picker.overlay) closePicker(); };
 
     // State comes back on the bus: poll the network history for the latest
     // media.status from THIS node (the same pattern the chat UI uses).
