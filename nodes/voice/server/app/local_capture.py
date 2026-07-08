@@ -47,6 +47,9 @@ class LocalCapture:
         self._file_thread: threading.Thread | None = None
         self._file_stop = threading.Event()
         self._audible = False
+        # Mirror diagnostics, surfaced in status(): did the speaker stream
+        # actually open, and if not, why.
+        self._audible_state: str = "off"
         self._ended = False
         self._loop: asyncio.AbstractEventLoop | None = None
         self._queue: asyncio.Queue[bytes] | None = None
@@ -72,6 +75,7 @@ class LocalCapture:
             "sample_rate": SAMPLE_RATE,
             "dropped_frames": self._dropped_frames,
             "audible": self._audible,
+            "audible_state": self._audible_state,
         }
 
     async def start(
@@ -216,14 +220,28 @@ class LocalCapture:
         if self._audible:
             try:
                 import sounddevice as sd
+                # PortAudio snapshots the device list at first init and never
+                # refreshes it: if the default output changed since (aggregate
+                # created, screen-recording virtual device, coreaudiod
+                # restart…), writes land on a stale device and come out
+                # silent. File mode owns no other PortAudio stream in this
+                # process, so a re-init here is safe and picks up the CURRENT
+                # default output.
+                if self._stream is None:
+                    sd._terminate()
+                    sd._initialize()
                 speaker = sd.RawOutputStream(
                     samplerate=SAMPLE_RATE, channels=1, dtype="int16",
                 )
                 speaker.start()
+                self._audible_state = f"open (device={sd.query_devices(kind='output')['name']})"
                 log.info("file capture: audible mode — mirroring audio to speakers")
             except Exception as e:  # noqa: BLE001
+                self._audible_state = f"open failed: {e}"
                 log.warning("file capture: audible mode unavailable (%s) — continuing silent", e)
                 speaker = None
+        else:
+            self._audible_state = "off"
 
         def push_pcm(data: bytes, flush: bool = False) -> bool:
             """Chunk into BLOCKSIZE frames and enqueue, sleeping to stay
@@ -247,8 +265,9 @@ class LocalCapture:
                 if speaker is not None:
                     try:
                         speaker.write(chunk)
-                    except Exception:  # noqa: BLE001
-                        pass  # output device vanished mid-play — keep feeding the pipeline
+                    except Exception as e:  # noqa: BLE001
+                        # output device vanished mid-play — keep feeding the pipeline
+                        self._audible_state = f"write failed: {e}"
                 sent_samples += take // 2
             return True
 
