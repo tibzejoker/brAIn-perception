@@ -115,10 +115,20 @@ class LocalCapture:
         loop: bool = False,
     ) -> dict:
         if self.is_running:
-            # Late-flip the describe toggle so a re-start with a different
-            # value still takes effect on subsequent frames.
-            self._describe = bool(describe)
-            return self.status()
+            # Same source still capturing → no-op, with a late-flip of the
+            # describe toggle. Mirrors the voice server so one media.play
+            # hitting both servers keeps them in the same state. Anything
+            # else restarts: a different file/device, or a file capture
+            # that already ENDED — its thread stays alive to hold the last
+            # frame, which used to swallow every replay silently.
+            same_source = (
+                (file is not None and file == self._file)
+                or (file is None and self._file is None and device == self._device)
+            )
+            if same_source and not self._ended:
+                self._describe = bool(describe)
+                return self.status()
+            self.stop()
 
         try:
             import cv2
