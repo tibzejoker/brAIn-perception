@@ -46,6 +46,7 @@ class LocalCapture:
         self._file: str | None = None
         self._file_thread: threading.Thread | None = None
         self._file_stop = threading.Event()
+        self._audible = False
         self._ended = False
         self._loop: asyncio.AbstractEventLoop | None = None
         self._queue: asyncio.Queue[bytes] | None = None
@@ -70,6 +71,7 @@ class LocalCapture:
             "session_id": self._hub.active_session,
             "sample_rate": SAMPLE_RATE,
             "dropped_frames": self._dropped_frames,
+            "audible": self._audible,
         }
 
     async def start(
@@ -77,9 +79,10 @@ class LocalCapture:
         device: int | str | None,
         session_id: str = "default",
         file: str | None = None,
+        audible: bool = False,
     ) -> dict[str, object]:
         if file:
-            return await self._start_file(file, session_id)
+            return await self._start_file(file, session_id, audible)
         # Already running on the same device → no-op. Different device (or
         # leftover file capture, even an ended one) → stop first so the
         # user's selection actually takes effect (Windows/Mac sounddevice
@@ -138,7 +141,7 @@ class LocalCapture:
                  self._device, self._device_name, session_id)
         return self.status()
 
-    async def _start_file(self, file: str, session_id: str) -> dict[str, object]:
+    async def _start_file(self, file: str, session_id: str, audible: bool = False) -> dict[str, object]:
         """Play a media file's audio track into the pipeline (demo/replay).
 
         The file is decoded with PyAV (already present via faster-whisper),
@@ -178,6 +181,7 @@ class LocalCapture:
         self._dropped_frames = 0
         self._file = file
         self._ended = False
+        self._audible = audible
         self._file_stop.clear()
 
         await self._hub.start_session(session_id)
@@ -204,6 +208,23 @@ class LocalCapture:
         buf = bytearray()
         chunk_bytes = BLOCKSIZE * 2  # int16 mono
 
+        # Audible mode: mirror the exact PCM the pipeline hears to the
+        # host's speakers, so a human (or a screen recording) hears the
+        # replay. Best-effort — a missing/busy output device degrades to
+        # the old silent behavior rather than failing the capture.
+        speaker = None
+        if self._audible:
+            try:
+                import sounddevice as sd
+                speaker = sd.RawOutputStream(
+                    samplerate=SAMPLE_RATE, channels=1, dtype="int16",
+                )
+                speaker.start()
+                log.info("file capture: audible mode — mirroring audio to speakers")
+            except Exception as e:  # noqa: BLE001
+                log.warning("file capture: audible mode unavailable (%s) — continuing silent", e)
+                speaker = None
+
         def push_pcm(data: bytes, flush: bool = False) -> bool:
             """Chunk into BLOCKSIZE frames and enqueue, sleeping to stay
             real-time. Returns False when stop was requested."""
@@ -223,6 +244,11 @@ class LocalCapture:
                     loop.call_soon_threadsafe(self._enqueue, chunk)
                 except RuntimeError:
                     return False
+                if speaker is not None:
+                    try:
+                        speaker.write(chunk)
+                    except Exception:  # noqa: BLE001
+                        pass  # output device vanished mid-play — keep feeding the pipeline
                 sent_samples += take // 2
             return True
 
@@ -247,6 +273,12 @@ class LocalCapture:
             log.exception("file capture reader crashed")
         finally:
             self._ended = True
+            if speaker is not None:
+                try:
+                    speaker.stop()
+                    speaker.close()
+                except Exception:  # noqa: BLE001
+                    pass
             try:
                 container.close()  # type: ignore[attr-defined]
             except Exception:

@@ -337,15 +337,17 @@
     /** Last file the media node played (bus history), else the one its UI
      *  remembered (same-origin localStorage) — the picker lives over there. */
     async function mediaFile() {
+      // Same-origin localStorage — the media node's UI owns this toggle.
+      const audible = localStorage.getItem("media-source:audible") !== "0";
       try {
         const res = await fetch(`${apiBase}/network/messages?topic=media.status&from=${mediaNodeId}&last=1`);
         if (res.ok) {
           const meta = (await res.json()).at(-1)?.metadata;
-          if (meta?.file) return { file: meta.file, loop: meta.loop === true };
+          if (meta?.file) return { file: meta.file, loop: meta.loop === true, audible };
         }
       } catch {}
       const file = localStorage.getItem("media-source:file");
-      return file ? { file, loop: false } : null;
+      return file ? { file, loop: false, audible } : null;
     }
 
     async function startFromMedia() {

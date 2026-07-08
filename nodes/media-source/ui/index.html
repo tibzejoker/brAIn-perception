@@ -106,6 +106,10 @@
       <input id="loop" type="checkbox" />
       <span class="hint">loop</span>
     </label>
+    <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer" title="Also play the audio through this machine's speakers — hear what the pipeline hears (and let a screen recording capture it).">
+      <input id="audible" type="checkbox" checked />
+      <span class="hint">🔊 speakers</span>
+    </label>
     <button id="play" class="primary">▶ Play</button>
     <button id="stop" class="danger" disabled>■ Stop</button>
     <button id="side-toggle" class="side-toggle" style="margin-left:auto" title="Show/hide the pipelines panel"></button>
@@ -150,6 +154,7 @@
     const els = {
       file: document.getElementById("file"),
       loop: document.getElementById("loop"),
+      audible: document.getElementById("audible"),
       play: document.getElementById("play"),
       stop: document.getElementById("stop"),
       status: document.getElementById("status"),
@@ -173,6 +178,8 @@
     applySide(localStorage.getItem("media:side-collapsed") === "1");
 
     els.file.value = localStorage.getItem("media-source:file") ?? "";
+    els.audible.checked = localStorage.getItem("media-source:audible") !== "0";
+    els.audible.onchange = () => localStorage.setItem("media-source:audible", els.audible.checked ? "1" : "0");
     let previewTimer = null;
 
     function setStatus(state, text) {
@@ -218,7 +225,7 @@
       if (!file) { els.file.focus(); return; }
       localStorage.setItem("media-source:file", file);
       setStatus("warming", "warming models…");
-      try { await publish("media.play", { file, loop: els.loop.checked }); }
+      try { await publish("media.play", { file, loop: els.loop.checked, audible: els.audible.checked }); }
       catch (e) { setStatus("error", e.message); }
     };
     els.stop.onclick = async () => {

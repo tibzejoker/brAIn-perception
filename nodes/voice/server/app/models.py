@@ -41,6 +41,10 @@ class CaptureStartIn(BaseModel):
     # track is played into the pipeline as if it were the mic (demo/replay).
     # When set, `device` is ignored.
     file: str | None = None
+    # File mode only: also play the decoded audio through the host's
+    # speakers so a human (or a screen recording) hears what the
+    # pipeline hears. Ignored for live-mic capture.
+    audible: bool = False
 
 
 class SegmentEvent(BaseModel):

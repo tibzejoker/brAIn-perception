@@ -12,7 +12,7 @@
   "ports": {
     "inputs": {
       "media.play": {
-        "description": "Play a video file as camera + mic. Payload: {file: absolute path, loop?: boolean}. Warms both perception servers first so playback starts in sync.",
+        "description": "Play a video file as camera + mic. Payload: {file: absolute path, loop?: boolean, audible?: boolean}. Warms both perception servers first so playback starts in sync.",
         "inputSchema": {
           "type": "object",
           "required": ["file"],
@@ -24,6 +24,10 @@
             "loop": {
               "type": "boolean",
               "description": "Rewind the video at EOF instead of holding the last frame (gaze side)."
+            },
+            "audible": {
+              "type": "boolean",
+              "description": "Also play the audio through the host's speakers so a human (or screen recording) hears the replay."
             }
           },
           "additionalProperties": false

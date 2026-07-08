@@ -155,6 +155,7 @@ def build_router(store: ProfileStore, hub: SessionHub, capture: LocalCapture) ->
         try:
             return await capture.start(
                 body.device, body.session_id or "default", file=body.file,
+                audible=body.audible,
             )
         except CaptureError as e:
             raise HTTPException(503, str(e)) from e

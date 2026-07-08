@@ -103,7 +103,7 @@ function stopPolling(): void {
   if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
 }
 
-async function play(file: string, loop: boolean): Promise<void> {
+async function play(file: string, loop: boolean, audible: boolean): Promise<void> {
   stopPolling();
   currentFile = file;
   currentLoop = loop;
@@ -126,7 +126,7 @@ async function play(file: string, loop: boolean): Promise<void> {
   }
 
   const [v, g] = await Promise.all([
-    post(`${VOICE}/api/capture/start`, { file, session_id: "default" }),
+    post(`${VOICE}/api/capture/start`, { file, session_id: "default", audible }),
     post(`${GAZE}/api/capture/start`, { file, loop, fps: 6 }),
   ]);
   if (!v.ok || !g.ok) {
@@ -226,7 +226,7 @@ export const handler: NodeHandler = async (ctx) => {
         publishStatus();
         continue;
       }
-      await play(file, p.loop === true);
+      await play(file, p.loop === true, p.audible === true);
       continue;
     }
     if (msg.topic === "media.stop") {
