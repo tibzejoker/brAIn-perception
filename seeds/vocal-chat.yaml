@@ -59,7 +59,11 @@ nodes:
     priority: 10
     position: { x: 940, y: 620 }
     subscriptions:
-      - topic: "brain.*"
+      # brain.input, NOT brain.* — the framework's presence/P2P plumbing
+      # lives under the same prefix (brain.network.snapshot every 3s,
+      # brain.agents.discover…) and a wildcard floods the LLM's mailbox
+      # with megabytes of infra JSON, drowning real conversation.
+      - topic: "brain.input"
       - topic: "intent.addressed"
       - topic: "chat.input"
       - topic: "chat.reset"
