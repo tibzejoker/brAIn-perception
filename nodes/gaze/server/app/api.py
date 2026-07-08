@@ -162,11 +162,13 @@ def build_router(
 
     @router.post("/capture/start")
     def capture_start(body: CaptureStartIn) -> dict:
-        # Bring the recognizer / gazelle / moondream / iris into RAM
-        # before opening the camera so the first frame doesn't race
-        # the cold model load. Idempotent — already-loaded models
-        # short-circuit.
+        # Bring the recognizer / gazelle / iris into RAM before opening
+        # the camera so the first frame doesn't race the cold model load.
+        # Idempotent — already-loaded models short-circuit. Moondream
+        # (~4 GB) is paid only when describe is actually requested.
         engine.ensure_models_loaded()
+        if body.describe:
+            engine.ensure_moondream_loaded()
         try:
             return capture.start(
                 device=body.device, fps=body.fps, describe=body.describe,
@@ -185,6 +187,10 @@ def build_router(
 
     @router.post("/capture/describe")
     def capture_describe(body: CaptureDescribeIn) -> dict:
+        # Load here (request thread) rather than stalling the analysis
+        # loop for the multi-GB Moondream load on the next frame.
+        if body.enabled:
+            engine.ensure_moondream_loaded()
         return capture.set_describe(body.enabled)
 
     @router.get("/capture/preview.jpg")

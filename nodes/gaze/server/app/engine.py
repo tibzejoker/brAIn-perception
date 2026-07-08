@@ -14,6 +14,7 @@ from __future__ import annotations
 import gc
 import logging
 import math
+import threading
 import time
 from dataclasses import dataclass
 from io import BytesIO
@@ -56,17 +57,22 @@ class GazeEngine:
     def __init__(
         self,
         store: ProfileStore,
-        model_factory: "Callable[[], tuple[Recognizer, GazelleModel | None, GazeModel | None, IrisTracker | None]]",
+        model_factory: "Callable[[], tuple[Recognizer, GazelleModel | None, IrisTracker | None]]",
+        moondream_factory: "Callable[[], GazeModel | None]",
     ) -> None:
         self._store = store
         # Models stay None until ensure_models_loaded() runs, called
         # from /capture/start. Released by unload_models() — typically
         # from /capture/stop — so an idle gaze-server keeps its multi-
-        # GB ML weights off the GPU.
+        # GB ML weights off the GPU. Moondream (~4 GB) loads separately,
+        # only when a describe is actually requested.
         self._model_factory = model_factory
+        self._moondream_factory = moondream_factory
         self._rec: Recognizer | None = None
         self._gazelle: GazelleModel | None = None
         self._moondream: GazeModel | None = None
+        self._moondream_attempted = False
+        self._moondream_lock = threading.Lock()
         self._iris: IrisTracker | None = None
         self._tuning = _Tuning(
             match_threshold=settings.match_threshold,
@@ -99,16 +105,27 @@ class GazeEngine:
     def ensure_models_loaded(self) -> None:
         if self._rec is not None:
             return
-        log.info("ensure_models_loaded — loading recognizer / gazelle / moondream / iris")
-        self._rec, self._gazelle, self._moondream, self._iris = self._model_factory()
+        log.info("ensure_models_loaded — loading recognizer / gazelle / iris")
+        self._rec, self._gazelle, self._iris = self._model_factory()
+
+    def ensure_moondream_loaded(self) -> None:
+        """Load Moondream on first describe use. A failed load is not
+        retried until the next unload/load cycle — a broken install would
+        otherwise re-pay the multi-second load attempt on every frame."""
+        with self._moondream_lock:
+            if self._moondream is not None or self._moondream_attempted:
+                return
+            self._moondream_attempted = True
+            self._moondream = self._moondream_factory()
 
     def unload_models(self) -> None:
-        if self._rec is None:
+        if self._rec is None and self._moondream is None:
             return
         log.info("unload_models — releasing recognizer / gazelle / moondream / iris")
         self._rec = None
         self._gazelle = None
         self._moondream = None
+        self._moondream_attempted = False
         self._iris = None
         gc.collect()
         try:
@@ -232,6 +249,8 @@ class GazeEngine:
         descriptions: list[str | None] = [None] * len(raw_faces)
         t_describe = 0.0
         t_encode = 0.0
+        if describe and raw_faces:
+            self.ensure_moondream_loaded()
         if describe and self._moondream is not None and raw_faces:
             t0 = time.perf_counter()
             encoded = self._moondream.encode_image(pil)

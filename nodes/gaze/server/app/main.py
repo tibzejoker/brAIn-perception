@@ -26,10 +26,10 @@ log = logging.getLogger("gaze")
 def _build_models() -> tuple:
     """Heavy ML model load. Called lazily on first capture.start so the
     server boot itself stays under ~50 MB. Returns
-    (recognizer, gazelle, moondream, iris) — any of the optional ones
-    may be None if disabled or failed to load.
+    (recognizer, gazelle, iris) — any of the optional ones may be None
+    if disabled or failed to load. Moondream is NOT part of the base
+    load — see _build_moondream.
     """
-    disable_describe = os.environ.get("GAZE_DISABLE_DESCRIBE", "0") == "1"
     disable_gazelle = os.environ.get("GAZE_DISABLE_GAZELLE", "0") == "1"
     disable_iris = os.environ.get("GAZE_DISABLE_IRIS", "0") == "1"
 
@@ -49,18 +49,6 @@ def _build_models() -> tuple:
         except Exception as e:
             log.exception("failed to load gazelle (%s) — gaze direction disabled", e)
 
-    moondream_model: GazeModel | None = None
-    if not disable_describe:
-        try:
-            moondream_model = GazeModel(
-                repo=settings.moondream_repo,
-                revision=settings.moondream_revision,
-                cache_dir=settings.models_dir,
-                device=settings.moondream_device,
-            )
-        except Exception as e:
-            log.exception("failed to load moondream (%s) — describe disabled", e)
-
     iris_tracker: IrisTracker | None = None
     if not disable_iris:
         try:
@@ -68,7 +56,26 @@ def _build_models() -> tuple:
         except Exception as e:
             log.exception("failed to load iris tracker (%s) — iris signal disabled", e)
 
-    return recognizer, gazelle_model, moondream_model, iris_tracker
+    return recognizer, gazelle_model, iris_tracker
+
+
+def _build_moondream() -> GazeModel | None:
+    """Moondream 2 is a ~1.9B-param VLM (~4 GB in fp16) and the engine only
+    uses it when `describe` is requested — so it loads on the first actual
+    describe, never as part of the base capture load.
+    """
+    if os.environ.get("GAZE_DISABLE_DESCRIBE", "0") == "1":
+        return None
+    try:
+        return GazeModel(
+            repo=settings.moondream_repo,
+            revision=settings.moondream_revision,
+            cache_dir=settings.models_dir,
+            device=settings.moondream_device,
+        )
+    except Exception as e:
+        log.exception("failed to load moondream (%s) — describe disabled", e)
+        return None
 
 
 @asynccontextmanager
@@ -80,7 +87,7 @@ async def lifespan(app: FastAPI):
     # Engine is built without models; load_models() / unload_models()
     # are called from /capture/start and /capture/stop so the heavy
     # weights live in RAM/MPS only while a capture session is active.
-    engine = GazeEngine(store, _build_models)
+    engine = GazeEngine(store, _build_models, _build_moondream)
     capture = LocalCapture(engine)
 
     app.state.store = store
