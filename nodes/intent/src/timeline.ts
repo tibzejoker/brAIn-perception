@@ -139,7 +139,9 @@ export class Timeline {
     if (!person.voice_profile_id) return [];
     const out: VoiceSegment[] = [];
     for (const v of this.voice) {
-      if (v.person_id !== null || v.provisional || v.correlated) continue;
+      // provisional = uncertain speaker match, still the best attribution we
+      // have — relink it like any other segment (see handler.fireCorrelation).
+      if (v.person_id !== null || v.correlated) continue;
       if (v.voice_profile_id !== person.voice_profile_id) continue;
       v.person_id = person.id;
       out.push(v);

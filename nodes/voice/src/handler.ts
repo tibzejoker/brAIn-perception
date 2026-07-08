@@ -116,8 +116,13 @@ function startEventBridge(): void {
         const event = JSON.parse(raw.toString("utf8")) as Record<string, unknown>;
         const type = event.type;
         if (type === "segment") {
-          const provisional = Boolean(event.provisional);
-          if (provisional) return; // brain wants finalized text only
+          // `provisional` marks an UNCERTAIN SPEAKER MATCH, not unstable
+          // text — the server emits each segment exactly once and the text
+          // is always final. Dropping provisional segments silenced every
+          // utterance whose voiceprint didn't match confidently (typically
+          // all of them on replayed media), so the brain heard nothing.
+          // Publish everything; the flag travels in metadata for consumers
+          // that care about attribution confidence.
           bus.publish({
             from: id,
             topic: "voice.transcript",

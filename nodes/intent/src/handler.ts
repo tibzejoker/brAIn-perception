@@ -166,7 +166,12 @@ function ensureBoot(): Promise<void> {
  * reaches it first.
  */
 function fireCorrelation(seg: VoiceSegment): void {
-  if (!store || !correlator || seg.correlated || seg.provisional) return;
+  // `provisional` means the SPEAKER attribution is uncertain, not the text —
+  // the voice server emits each segment exactly once, so skipping provisional
+  // segments would silence them forever (on replayed media the voiceprint
+  // match is almost never confident). Correlate with the best attribution we
+  // have; the flag stays on the record for consumers that care.
+  if (!store || !correlator || seg.correlated) return;
   if (!seg.person_id) {
     const linked = store.findByVoice(seg.voice_profile_id);
     if (!linked) return; // retro-correlation fires it when the person lands
@@ -208,7 +213,7 @@ function ingestVoiceTranscript(metadata: Record<string, unknown>): void {
     correlated: false,
   };
   timeline.addVoice(seg);
-  if (!provisional) setTimeout(() => fireCorrelation(seg), CORRELATE_DEFER_MS);
+  setTimeout(() => fireCorrelation(seg), CORRELATE_DEFER_MS);
 }
 
 function ingestGazeEvent(metadata: Record<string, unknown>): void {
