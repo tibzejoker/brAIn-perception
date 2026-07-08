@@ -91,7 +91,7 @@ class LocalCapture:
         if self._stream is not None or self._file_thread is not None:
             if self._stream is not None and (device is None or device == self._device):
                 return self.status()
-            await self.stop()
+            await self._stop_io()
 
         try:
             import sounddevice as sd
@@ -154,7 +154,7 @@ class LocalCapture:
         if self._stream is not None or self._file_thread is not None:
             if file == self._file and self.is_running:
                 return self.status()
-            await self.stop()
+            await self._stop_io()
 
         if not os.path.isfile(file):
             raise CaptureError(f"media file not found: {file}")
@@ -284,10 +284,13 @@ class LocalCapture:
             except Exception:
                 pass
 
-    async def stop(self) -> dict[str, object]:
-        if self._stream is None and self._file_thread is None:
-            return self.status()
-
+    async def _stop_io(self) -> None:
+        """Stop the capture I/O (stream / file reader / consumer) but keep
+        the hub session and its models loaded. Used by the restart paths
+        (replay, device switch): a restart that goes through the full
+        stop() pays a ~10s STT/embedder reload inside capture/start —
+        AFTER the caller's warmup phase — which desyncs a media replay
+        from the gaze side and breaks voice↔gaze correlation."""
         stream, self._stream = self._stream, None
         if stream is not None:
             try:
@@ -316,6 +319,11 @@ class LocalCapture:
         self._device = None
         self._device_name = None
 
+    async def stop(self) -> dict[str, object]:
+        if self._stream is None and self._file_thread is None:
+            return self.status()
+
+        await self._stop_io()
         await self._hub.stop_session()
         log.info("local capture stopped (dropped %d frames during session)", self._dropped_frames)
         return self.status()
