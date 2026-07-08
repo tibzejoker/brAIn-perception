@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.1.0](https://github.com/tibzejoker/brAIn-perception/compare/v1.0.0...v1.1.0) (2026-07-08)
+
+
+### Features
+
+* **demo:** record the real dashboard — expanded node cards in the live graph ([fe69458](https://github.com/tibzejoker/brAIn-perception/commit/fe69458d0ec8d59e8c7f66b5521906864d7f6c7f))
+* **media-source:** audible mode — hear the replay through the speakers ([76490c8](https://github.com/tibzejoker/brAIn-perception/commit/76490c8e89de355ff0485cbec6fad8d39e193537))
+* **media-source:** file picker backed by a media.browse port ([c812efe](https://github.com/tibzejoker/brAIn-perception/commit/c812efe33ca499c1d6df4fcfe3bf938e3cab0ca4))
+* **media-source:** virtual camera + mic node — one UI to play a video into the whole pipeline ([4f2f426](https://github.com/tibzejoker/brAIn-perception/commit/4f2f426bfd1c49fef2a293b94a177245b91a86ef))
+* **perception:** media-source appears as a virtual device in gaze + voice UIs ([77330f7](https://github.com/tibzejoker/brAIn-perception/commit/77330f7f26e35440028f3427040efe3cd3a19dba))
+* **tts:** speak_replies opt-in — auto-speech is a config choice, not a subscription side effect ([b9c6068](https://github.com/tibzejoker/brAIn-perception/commit/b9c6068531ac87d6ff4ad3edb79f23abe39ed2ed))
+* **ui:** collapsible side panels on gaze / voice / intent / media-source ([f14bf0f](https://github.com/tibzejoker/brAIn-perception/commit/f14bf0f4c041fd338ea3f654f5104f788e2f27e1))
+
+
+### Bug Fixes
+
+* **gaze:** replaying a file after EOF actually restarts the capture ([96dc9b7](https://github.com/tibzejoker/brAIn-perception/commit/96dc9b7c6124e29e7d0c477dec8d3d3e81a12a23))
+* **perception:** provisional segments reach the bus and the correlator ([953ed55](https://github.com/tibzejoker/brAIn-perception/commit/953ed55ff80eeadbc75c82d244a5a855444bca7f))
+* **seed:** subscribe the brain to brain.input, not brain.* ([ddd2e29](https://github.com/tibzejoker/brAIn-perception/commit/ddd2e29f609a5c8bb59234633bafb8803fd0f682))
+* **setup-py:** preflight Python dev headers on Linux/macOS ([6883278](https://github.com/tibzejoker/brAIn-perception/commit/6883278259767716e0daf335ed4a594532ff3686))
+* **setup:** completion marker — a half-installed venv no longer wedges the node ([ed89751](https://github.com/tibzejoker/brAIn-perception/commit/ed897519eb6a3df3755547f6fb170dfceb42dee9))
+* **voice:** audible mirror survives audio-device changes + status diagnostics ([bc5b3f4](https://github.com/tibzejoker/brAIn-perception/commit/bc5b3f431d2ed051bcd2dc24f4b479c834b7f528))
+* **voice:** restart capture without dropping the loaded engine ([37ba211](https://github.com/tibzejoker/brAIn-perception/commit/37ba2112daa2b7f1369f27b4ee1565fba306d29f))
+
+
+### Performance Improvements
+
+* **gaze:** load Moondream lazily, on first describe use only ([78ad908](https://github.com/tibzejoker/brAIn-perception/commit/78ad908e0484626f6db4d9db0df44ba04e60d5cf))
+
 ## 1.0.0 (2026-07-03)
 
 
